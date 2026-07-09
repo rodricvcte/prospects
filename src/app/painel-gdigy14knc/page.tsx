@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Canal, Prospect } from "@/lib/prospects";
+import NovoProspectModal from "@/components/NovoProspectModal";
 
 const CANAL_LABEL: Record<Canal, string> = {
   instagram: "Instagram",
@@ -45,6 +46,8 @@ export default function PainelProspects() {
   const [dataFim, setDataFim] = useState("");
 
   const [regioesDisponiveis, setRegioesDisponiveis] = useState<string[]>([]);
+  const [modalAberto, setModalAberto] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -85,7 +88,7 @@ export default function PainelProspects() {
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [search, canal, regiao, dataInicio, dataFim]);
+  }, [search, canal, regiao, dataInicio, dataFim, refreshKey]);
 
   const toggleExpandido = (id: string) => {
     setExpandidos((atual) => {
@@ -103,11 +106,20 @@ export default function PainelProspects() {
 
   return (
     <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10 sm:px-10">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
-          Prospecção
-        </h1>
-        <p className="mt-1 text-sm text-neutral-500">{totalLabel}</p>
+      <header className="mb-8 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+            Prospecção
+          </h1>
+          <p className="mt-1 text-sm text-neutral-500">{totalLabel}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setModalAberto(true)}
+          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
+        >
+          Novo Prospect
+        </button>
       </header>
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -243,6 +255,16 @@ export default function PainelProspects() {
           </tbody>
         </table>
       </div>
+
+      {modalAberto && (
+        <NovoProspectModal
+          onClose={() => setModalAberto(false)}
+          onCreated={() => {
+            setModalAberto(false);
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
     </div>
   );
 }
