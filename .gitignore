@@ -37,6 +37,12 @@ yarn-error.log*
 # supabase CLI local cache
 supabase/.temp
 
+# chave da extensão de Chrome (não versionar)
+extension/config.local.js
+
+# dados reais de prospects (nomes, @ do Instagram, mensagens) — repo é público
+scripts/import-instagram/*.csv
+
 # vercel
 .vercel
 

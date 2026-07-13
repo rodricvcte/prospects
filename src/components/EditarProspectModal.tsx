@@ -1,86 +1,73 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Canal, Prospect } from "@/lib/prospects";
-import { regiaoPorTelefone } from "@/lib/ddd";
 
-const CONTA_ORIGEM_STORAGE_KEY = "prospects:conta_origem";
-
-function agoraParaInput(): string {
-  const agora = new Date();
-  const offset = agora.getTimezoneOffset();
-  const local = new Date(agora.getTime() - offset * 60_000);
+function paraInputDatetimeLocal(iso: string): string {
+  const data = new Date(iso);
+  const offset = data.getTimezoneOffset();
+  const local = new Date(data.getTime() - offset * 60_000);
   return local.toISOString().slice(0, 16);
 }
 
 interface Props {
+  prospect: Prospect;
   onClose: () => void;
-  onCreated: (prospect: Prospect) => void;
+  onSaved: (prospect: Prospect) => void;
 }
 
-export default function NovoProspectModal({ onClose, onCreated }: Props) {
-  const [nomeProspect, setNomeProspect] = useState("");
-  const [canal, setCanal] = useState<Canal>("instagram");
-  const [contaOrigem, setContaOrigem] = useState("");
-  const [contaDestino, setContaDestino] = useState("");
-  const [origemInstagram, setOrigemInstagram] = useState("");
-  const [regiao, setRegiao] = useState("");
-  const [regiaoEditadaManualmente, setRegiaoEditadaManualmente] = useState(false);
-  const [msgUtilizada, setMsgUtilizada] = useState("");
-  const [dataHrApproach, setDataHrApproach] = useState(agoraParaInput);
+export default function EditarProspectModal({ prospect, onClose, onSaved }: Props) {
+  const [nomeProspect, setNomeProspect] = useState(prospect.nome_prospect ?? "");
+  const [canal, setCanal] = useState<Canal>(prospect.canal);
+  const [contaOrigem, setContaOrigem] = useState(prospect.conta_origem);
+  const [contaDestino, setContaDestino] = useState(prospect.conta_destino);
+  const [regiao, setRegiao] = useState(prospect.regiao ?? "");
+  const [msgUtilizada, setMsgUtilizada] = useState(prospect.msg_utilizada ?? "");
+  const [origemInstagram, setOrigemInstagram] = useState(prospect.origem_instagram ?? "");
+  const [dataHrApproach, setDataHrApproach] = useState(paraInputDatetimeLocal(prospect.data_hr_approach));
+  const [recusado, setRecusado] = useState(prospect.recusado);
+  const [interessado, setInteressado] = useState(prospect.interessado);
 
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-
-  useEffect(() => {
-    const ultimaOrigem = localStorage.getItem(CONTA_ORIGEM_STORAGE_KEY);
-    if (ultimaOrigem) setContaOrigem(ultimaOrigem);
-  }, []);
-
-  const preencherRegiaoPorDdd = () => {
-    if (canal !== "whatsapp" || regiaoEditadaManualmente || !contaDestino.trim()) return;
-    const sugestao = regiaoPorTelefone(contaDestino);
-    if (sugestao) setRegiao(sugestao);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErro(null);
 
-    if (!nomeProspect.trim() || !contaDestino.trim()) {
-      setErro("Preencha os campos obrigatórios.");
+    if (!contaOrigem.trim() || !contaDestino.trim()) {
+      setErro("Sender e Receiver não podem ficar vazios.");
       return;
     }
 
     setEnviando(true);
     try {
-      const res = await fetch("/api/prospects", {
-        method: "POST",
+      const res = await fetch(`/api/prospects/${prospect.id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           canal,
           conta_origem: contaOrigem.trim(),
           conta_destino: contaDestino.trim(),
-          nome_prospect: nomeProspect.trim(),
-          origem_instagram: origemInstagram.trim() || null,
+          nome_prospect: nomeProspect.trim() || null,
           regiao: regiao.trim() || null,
           msg_utilizada: msgUtilizada.trim() || null,
+          origem_instagram: origemInstagram.trim() || null,
           data_hr_approach: new Date(dataHrApproach).toISOString(),
+          recusado,
+          interessado,
         }),
       });
       const data = await res.json();
 
       if (!res.ok) {
-        setErro(data.error ?? "Erro ao criar prospect.");
+        setErro(data.error ?? "Erro ao salvar alterações.");
         return;
       }
 
-      if (contaOrigem.trim()) {
-        localStorage.setItem(CONTA_ORIGEM_STORAGE_KEY, contaOrigem.trim());
-      }
-      onCreated(data.prospect);
+      onSaved(data.prospect);
     } catch {
-      setErro("Erro ao criar prospect.");
+      setErro("Erro ao salvar alterações.");
     } finally {
       setEnviando(false);
     }
@@ -96,7 +83,7 @@ export default function NovoProspectModal({ onClose, onCreated }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-neutral-900">Novo Prospect</h2>
+          <h2 className="text-lg font-semibold text-neutral-900">Editar Prospect</h2>
           <button
             type="button"
             onClick={onClose}
@@ -109,12 +96,9 @@ export default function NovoProspectModal({ onClose, onCreated }: Props) {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500">
-              Nome do prospect *
-            </label>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">Nome do prospect</label>
             <input
               type="text"
-              required
               value={nomeProspect}
               onChange={(e) => setNomeProspect(e.target.value)}
               className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none"
@@ -122,15 +106,10 @@ export default function NovoProspectModal({ onClose, onCreated }: Props) {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500">
-              Canal *
-            </label>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">Canal *</label>
             <select
               value={canal}
-              onChange={(e) => {
-                setCanal(e.target.value as Canal);
-                setRegiaoEditadaManualmente(false);
-              }}
+              onChange={(e) => setCanal(e.target.value as Canal)}
               className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none"
             >
               <option value="instagram">Instagram</option>
@@ -139,37 +118,29 @@ export default function NovoProspectModal({ onClose, onCreated }: Props) {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500">
-              Sender
-            </label>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">Sender *</label>
             <input
               type="text"
+              required
               value={contaOrigem}
               onChange={(e) => setContaOrigem(e.target.value)}
-              placeholder="@sua_conta ou +55 11 90000-0000"
-              className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none"
+              className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500">
-              Receiver *
-            </label>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">Receiver *</label>
             <input
               type="text"
               required
               value={contaDestino}
               onChange={(e) => setContaDestino(e.target.value)}
-              onBlur={preencherRegiaoPorDdd}
-              placeholder="@prospect ou +55 11 90000-0000"
-              className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none"
+              className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500">
-              Origem (Instagram)
-            </label>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">Origem (Instagram)</label>
             <input
               type="text"
               value={origemInstagram}
@@ -180,25 +151,18 @@ export default function NovoProspectModal({ onClose, onCreated }: Props) {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500">
-              Região
-            </label>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">Região</label>
             <input
               type="text"
               value={regiao}
-              onChange={(e) => {
-                setRegiao(e.target.value);
-                setRegiaoEditadaManualmente(true);
-              }}
+              onChange={(e) => setRegiao(e.target.value)}
               placeholder="Cidade/UF"
               className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500">
-              Mensagem utilizada
-            </label>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">Mensagem utilizada</label>
             <textarea
               value={msgUtilizada}
               onChange={(e) => setMsgUtilizada(e.target.value)}
@@ -208,15 +172,34 @@ export default function NovoProspectModal({ onClose, onCreated }: Props) {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500">
-              Data/hora do approach
-            </label>
+            <label className="mb-1 block text-xs font-medium text-neutral-500">Data/hora do approach</label>
             <input
               type="datetime-local"
               value={dataHrApproach}
               onChange={(e) => setDataHrApproach(e.target.value)}
               className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none"
             />
+          </div>
+
+          <div className="flex gap-6">
+            <label className="flex items-center gap-2 text-sm text-neutral-700">
+              <input
+                type="checkbox"
+                checked={recusado}
+                onChange={(e) => setRecusado(e.target.checked)}
+                className="h-4 w-4 accent-neutral-900"
+              />
+              Recusado
+            </label>
+            <label className="flex items-center gap-2 text-sm text-neutral-700">
+              <input
+                type="checkbox"
+                checked={interessado}
+                onChange={(e) => setInteressado(e.target.checked)}
+                className="h-4 w-4 accent-neutral-900"
+              />
+              Interessado
+            </label>
           </div>
 
           {erro && (

@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Prospects — Registro de Approach",
+  "version": "1.0.0",
+  "description": "Verifica duplicidade e registra approaches de prospecção direto do Instagram e do WhatsApp Web.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://www.instagram.com/*",
+    "https://web.whatsapp.com/*",
+    "http://localhost:3000/*",
+    "https://prospects-indol.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Prospects"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.instagram.com/*"],
+      "js": ["config.js", "normalize.js", "content-common.js", "content-instagram.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["config.js", "normalize.js", "ddd.js", "content-common.js", "content-whatsapp.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

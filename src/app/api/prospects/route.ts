@@ -5,8 +5,12 @@ import {
   DuplicateProspectError,
   type Canal,
 } from "@/lib/prospects";
+import { requireAuth } from "@/lib/require-auth";
 
 export async function GET(request: NextRequest) {
+  const unauth = await requireAuth(request);
+  if (unauth) return unauth;
+
   const params = request.nextUrl.searchParams;
   const canal = params.get("canal");
 
@@ -19,8 +23,11 @@ export async function GET(request: NextRequest) {
       search: params.get("search") ?? undefined,
       canal: (canal as Canal) ?? undefined,
       regiao: params.get("regiao") ?? undefined,
+      sender: params.get("sender") ?? undefined,
       dataInicio: params.get("data_inicio") ?? undefined,
       dataFim: params.get("data_fim") ?? undefined,
+      contaDestinoNormalizada: params.get("conta_destino_normalizada") ?? undefined,
+      origemInstagram: params.get("origem_instagram") ?? undefined,
     });
     return NextResponse.json({ prospects });
   } catch (error) {
@@ -30,6 +37,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const unauth = await requireAuth(request);
+  if (unauth) return unauth;
+
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -58,6 +68,7 @@ export async function POST(request: NextRequest) {
       regiao: typeof body.regiao === "string" ? body.regiao : null,
       msg_utilizada: typeof body.msg_utilizada === "string" ? body.msg_utilizada : null,
       data_hr_approach: typeof body.data_hr_approach === "string" ? body.data_hr_approach : undefined,
+      origem_instagram: typeof body.origem_instagram === "string" ? body.origem_instagram : null,
     });
     return NextResponse.json({ prospect }, { status: 201 });
   } catch (error) {
