@@ -175,19 +175,34 @@ export interface UpdateProspectInput {
 export async function updateProspect(id: string, input: UpdateProspectInput): Promise<Prospect> {
   const updateData: Record<string, unknown> = { ...input };
 
-  // canal/conta_destino mudando exige recalcular conta_destino_normalizada e
-  // reconferir duplicidade (o índice único do banco não ajuda aqui porque a
-  // checagem precisa excluir o próprio registro sendo editado).
-  if (input.canal !== undefined || input.conta_destino !== undefined) {
-    const { data: atual, error: erroAtual } = await supabase
+  const precisaContaAtual = input.canal !== undefined || input.conta_destino !== undefined;
+  // Marcar interessado precisa empurrar o estagio pra "Respondeu" (senão o
+  // card nunca sai da coluna "Novo", que fica de fora do Kanban) — mas só
+  // quando quem chamou não mandou um estagio explícito, e só a partir de
+  // "Novo", pra não regredir alguém que já tá em "Negociando" etc.
+  const precisaEstagioAtual = input.interessado === true && input.estagio === undefined;
+
+  let atual: Prospect | null = null;
+  if (precisaContaAtual || precisaEstagioAtual) {
+    const { data, error: erroAtual } = await supabase
       .from("prospects")
       .select("*")
       .eq("id", id)
       .single();
     if (erroAtual) throw erroAtual;
+    atual = data;
+  }
 
-    const canalFinal = input.canal ?? atual.canal;
-    const contaDestinoFinal = input.conta_destino ?? atual.conta_destino;
+  if (precisaEstagioAtual && atual!.estagio === "Novo") {
+    updateData.estagio = "Respondeu";
+  }
+
+  // canal/conta_destino mudando exige recalcular conta_destino_normalizada e
+  // reconferir duplicidade (o índice único do banco não ajuda aqui porque a
+  // checagem precisa excluir o próprio registro sendo editado).
+  if (precisaContaAtual) {
+    const canalFinal = input.canal ?? atual!.canal;
+    const contaDestinoFinal = input.conta_destino ?? atual!.conta_destino;
     const normalizada = normalizarContaDestino(canalFinal, contaDestinoFinal);
 
     const { data: duplicado, error: erroDup } = await supabase
