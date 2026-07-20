@@ -42,7 +42,7 @@ export interface ListProspectsFilters {
   origemInstagram?: string;
 }
 
-export async function listProspects(filters: ListProspectsFilters): Promise<Prospect[]> {
+function construirQueryProspects(filters: ListProspectsFilters) {
   let query = supabase
     .from("prospects")
     .select("*")
@@ -84,9 +84,28 @@ export async function listProspects(filters: ListProspectsFilters): Promise<Pros
     query = query.lte("data_hr_approach", `${filters.dataFim}T23:59:59.999`);
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  return query;
+}
+
+export async function listProspects(filters: ListProspectsFilters): Promise<Prospect[]> {
+  // O PostgREST limita cada resposta a no máximo db-max-rows linhas (1000 por
+  // padrão no Supabase), então precisamos paginar manualmente até esgotar os
+  // resultados — sem isso, prospects mais antigos "somem" da listagem depois
+  // que a base passa de 1000 registros.
+  const PAGE_SIZE = 1000;
+  const resultado: Prospect[] = [];
+  let inicio = 0;
+  for (;;) {
+    const { data, error } = await construirQueryProspects(filters).range(
+      inicio,
+      inicio + PAGE_SIZE - 1,
+    );
+    if (error) throw error;
+    resultado.push(...(data ?? []));
+    if (!data || data.length < PAGE_SIZE) break;
+    inicio += PAGE_SIZE;
+  }
+  return resultado;
 }
 
 export interface CreateProspectInput {
