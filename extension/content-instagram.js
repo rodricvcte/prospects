@@ -463,6 +463,34 @@ vincularLinksWhatsapp();
 
 // --- Função 3: registrar approach ---
 
+// Sem DOM real do Instagram Direct pra confirmar no momento em que isso foi
+// escrito — fallback genérico pra qualquer contenteditable com role=textbox
+// na página, que deve ser a caixa de mensagem na maioria dos casos (a busca
+// do Direct é um <input> comum, não contenteditable). Se o botão clicar e
+// não encontrar nada (ex: não há conversa aberta), mostra erro em vez de
+// falhar silenciosamente.
+function obterCaixaDeTextoInstagram() {
+  return (
+    document.querySelector('div[contenteditable="true"][aria-label][role="textbox"]') ||
+    document.querySelector('div[contenteditable="true"][role="textbox"]')
+  );
+}
+
+criarBotaoColarMensagem(async () => {
+  console.log("[Prospects] === Colar mensagem clicado (Instagram) ===");
+  const caixaTexto = obterCaixaDeTextoInstagram();
+  if (!caixaTexto) {
+    showToast("Não encontrei a caixa de mensagem — abra uma conversa no Direct e tente de novo.");
+    return;
+  }
+  const texto = await obterMensagemPadrao();
+  if (!texto) {
+    showToast("Não consegui carregar a mensagem (msg.txt).");
+    return;
+  }
+  inserirTextoNoCampo(caixaTexto, texto);
+});
+
 criarBotaoFlutuante(() => {
   console.log("[Prospects] === Registrar Approach clicado (Instagram) ===");
   const username = extrairUsernameDoPerfil(location.pathname) || "";

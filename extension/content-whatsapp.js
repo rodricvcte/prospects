@@ -368,6 +368,34 @@ async function verificarConversaAtual() {
 setInterval(verificarConversaAtual, 1200);
 verificarConversaAtual();
 
+// Múltiplos seletores em ordem de preferência porque a estrutura exata da
+// caixa de texto do WhatsApp Web muda entre versões — sem DOM real pra
+// confirmar no momento em que isso foi escrito, então o fallback mais
+// genérico (qualquer contenteditable dentro do <footer>) cobre o caso dos
+// mais específicos pararem de bater depois de uma atualização do WhatsApp.
+function obterCaixaDeTextoWhatsapp() {
+  return (
+    document.querySelector('#main footer div[contenteditable="true"][data-lexical-editor="true"]') ||
+    document.querySelector('#main footer div[contenteditable="true"][role="textbox"]') ||
+    document.querySelector('#main footer div[contenteditable="true"]')
+  );
+}
+
+criarBotaoColarMensagem(async () => {
+  console.log("[Prospects] === Colar mensagem clicado (WhatsApp) ===");
+  const caixaTexto = obterCaixaDeTextoWhatsapp();
+  if (!caixaTexto) {
+    showToast("Não encontrei a caixa de mensagem — abra uma conversa e tente de novo.");
+    return;
+  }
+  const texto = await obterMensagemPadrao();
+  if (!texto) {
+    showToast("Não consegui carregar a mensagem (msg.txt).");
+    return;
+  }
+  inserirTextoNoCampo(caixaTexto, texto);
+});
+
 criarBotaoFlutuante(async () => {
   console.log("[Prospects] === Registrar Approach clicado (WhatsApp) ===");
   const header = document.querySelector("#main header");

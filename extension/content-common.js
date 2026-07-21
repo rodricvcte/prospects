@@ -160,6 +160,23 @@ const PROSPECTS_EXT_CSS = `
   }
   .botao-flutuante:hover { background: #2b2b2b; }
 
+  .botao-flutuante-msg {
+    position: fixed;
+    bottom: 74px;
+    right: 24px;
+    z-index: 2147483000;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 999px;
+    padding: 12px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  }
+  .botao-flutuante-msg:hover { background: #1d4ed8; }
+
   .overlay {
     position: fixed;
     inset: 0;
@@ -291,6 +308,54 @@ function criarBotaoFlutuante(onClick) {
   btn.textContent = "+ Registrar Approach";
   btn.addEventListener("click", onClick);
   root.appendChild(btn);
+}
+
+function criarBotaoColarMensagem(onClick) {
+  const root = getProspectsExtRoot();
+  if (root.querySelector(".botao-flutuante-msg")) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "botao-flutuante-msg";
+  btn.textContent = "💬 Colar mensagem";
+  btn.addEventListener("click", onClick);
+  root.appendChild(btn);
+}
+
+// Texto fica em msg.txt (não em JS) de propósito — é a mensagem de
+// prospecção que muda com frequência, e editar um .txt simples é mais fácil
+// do que mexer em código. Cacheado após a primeira leitura: só muda de
+// verdade recarregando a extensão (mesma exigência de qualquer outro arquivo
+// da extensão), então não há motivo pra buscar de novo a cada clique.
+let mensagemPadraoCache = null;
+
+async function obterMensagemPadrao() {
+  if (mensagemPadraoCache !== null) return mensagemPadraoCache;
+  try {
+    const resposta = await fetch(chrome.runtime.getURL("msg.txt"));
+    mensagemPadraoCache = (await resposta.text()).replace(/\r\n/g, "\n").trim();
+  } catch (erro) {
+    console.warn("[Prospects] obterMensagemPadrao: erro ao carregar msg.txt", erro);
+    mensagemPadraoCache = "";
+  }
+  return mensagemPadraoCache;
+}
+
+// Insere texto numa caixa contenteditable (WhatsApp Web e Instagram Direct
+// usam editores estilo Lexical, não um <textarea> comum) simulando o cursor
+// no final e usando execCommand("insertText") — diferente de setar
+// .textContent ou disparar eventos sintéticos, isso gera um evento de input
+// "de verdade" que o editor escuta e processa corretamente (inclusive
+// quebras de linha dentro do texto, sem disparar o envio da mensagem, já
+// que não é um keydown de Enter de verdade).
+function inserirTextoNoCampo(elemento, texto) {
+  elemento.focus();
+  const selecao = document.getSelection();
+  selecao.removeAllRanges();
+  const range = document.createRange();
+  range.selectNodeContents(elemento);
+  range.collapse(false);
+  selecao.addRange(range);
+  document.execCommand("insertText", false, texto);
 }
 
 function campoTexto(label, valor, { textarea = false, fixo = false } = {}) {
