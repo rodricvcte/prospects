@@ -177,6 +177,49 @@ const PROSPECTS_EXT_CSS = `
   }
   .botao-flutuante-msg:hover { background: #1d4ed8; }
 
+  .menu-mensagens {
+    position: fixed;
+    bottom: 122px;
+    right: 24px;
+    z-index: 2147483000;
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    width: 300px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 6px;
+  }
+  .menu-mensagens .item-mensagem {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    color: #171717;
+  }
+  .menu-mensagens .item-mensagem:hover { background: #f5f5f5; }
+  .menu-mensagens .item-mensagem + .item-mensagem { margin-top: 2px; }
+  .menu-mensagens .item-titulo {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: #2563eb;
+    margin-bottom: 2px;
+  }
+  .menu-mensagens .item-preview {
+    display: block;
+    font-size: 12px;
+    color: #525252;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .overlay {
     position: fixed;
     inset: 0;
@@ -326,18 +369,111 @@ function criarBotaoColarMensagem(onClick) {
 // do que mexer em código. Cacheado após a primeira leitura: só muda de
 // verdade recarregando a extensão (mesma exigência de qualquer outro arquivo
 // da extensão), então não há motivo pra buscar de novo a cada clique.
-let mensagemPadraoCache = null;
+let mensagemBrutaCache = null;
 
-async function obterMensagemPadrao() {
-  if (mensagemPadraoCache !== null) return mensagemPadraoCache;
+async function obterTextoMensagemBruto() {
+  if (mensagemBrutaCache !== null) return mensagemBrutaCache;
   try {
     const resposta = await fetch(chrome.runtime.getURL("msg.txt"));
-    mensagemPadraoCache = (await resposta.text()).replace(/\r\n/g, "\n").trim();
+    mensagemBrutaCache = (await resposta.text()).replace(/\r\n/g, "\n").trim();
   } catch (erro) {
-    console.warn("[Prospects] obterMensagemPadrao: erro ao carregar msg.txt", erro);
-    mensagemPadraoCache = "";
+    console.warn("[Prospects] obterTextoMensagemBruto: erro ao carregar msg.txt", erro);
+    mensagemBrutaCache = "";
   }
-  return mensagemPadraoCache;
+  return mensagemBrutaCache;
+}
+
+// msg.txt pode conter várias opções de mensagem, cada uma introduzida por uma
+// linha "Opção N" (com ou sem acento/cedilha, maiúscula ou minúscula). Se
+// nenhuma linha desse formato for encontrada, o arquivo inteiro vira uma
+// única opção — mantém compatibilidade com um msg.txt de mensagem única.
+const REGEX_TITULO_OPCAO = /^Op[cç][aã]o\s*\d+\s*$/i;
+
+function parseOpcoesMensagem(textoBruto) {
+  const linhas = textoBruto.split("\n");
+  const opcoes = [];
+  let atual = null;
+  for (const linha of linhas) {
+    if (REGEX_TITULO_OPCAO.test(linha.trim())) {
+      if (atual) opcoes.push(atual);
+      atual = { titulo: linha.trim(), corpo: [] };
+    } else if (atual) {
+      atual.corpo.push(linha);
+    }
+  }
+  if (atual) opcoes.push(atual);
+
+  if (opcoes.length === 0) {
+    return textoBruto ? [{ titulo: "Mensagem", texto: textoBruto }] : [];
+  }
+  return opcoes
+    .map((o) => ({ titulo: o.titulo, texto: o.corpo.join("\n").trim() }))
+    .filter((o) => o.texto);
+}
+
+async function obterOpcoesMensagem() {
+  const bruto = await obterTextoMensagemBruto();
+  return parseOpcoesMensagem(bruto);
+}
+
+function hideMenuMensagens() {
+  const root = getProspectsExtRoot();
+  const existente = root.querySelector(".menu-mensagens");
+  if (existente) existente.remove();
+}
+
+// Preview de uma linha pra cada opção (primeira linha não vazia do corpo),
+// truncado — o texto completo só aparece de fato depois de inserido no campo.
+function previewMensagem(texto, tamanho = 70) {
+  const primeiraLinha = texto.split("\n").find((l) => l.trim()) || "";
+  return primeiraLinha.length > tamanho ? `${primeiraLinha.slice(0, tamanho).trim()}…` : primeiraLinha;
+}
+
+// onEscolher(texto) é chamado com a opção selecionada. Com 2+ opções em
+// msg.txt, mostra um menu pra o usuário escolher em vez de colar direto —
+// só faz sentido perguntar quando há de fato mais de uma opção.
+function mostrarMenuOpcoesMensagem(opcoes, onEscolher) {
+  const root = getProspectsExtRoot();
+  hideMenuMensagens();
+
+  const menu = document.createElement("div");
+  menu.className = "menu-mensagens";
+
+  opcoes.forEach((opcao) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "item-mensagem";
+
+    const titulo = document.createElement("span");
+    titulo.className = "item-titulo";
+    titulo.textContent = opcao.titulo;
+    item.appendChild(titulo);
+
+    const preview = document.createElement("span");
+    preview.className = "item-preview";
+    preview.textContent = previewMensagem(opcao.texto);
+    item.appendChild(preview);
+
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hideMenuMensagens();
+      onEscolher(opcao.texto);
+    });
+    menu.appendChild(item);
+  });
+
+  root.appendChild(menu);
+
+  // Fecha ao clicar fora do menu. Registrado no próximo tick pra não capturar
+  // o mesmo clique do botão "Colar mensagem" que abriu o menu.
+  setTimeout(() => {
+    document.addEventListener("click", function fecharAoClicarFora(e) {
+      if (!menu.contains(e.composedPath ? e.composedPath()[0] : e.target)) {
+        hideMenuMensagens();
+        document.removeEventListener("click", fecharAoClicarFora);
+      }
+    });
+  }, 0);
 }
 
 // Insere texto numa caixa contenteditable (WhatsApp Web e Instagram Direct

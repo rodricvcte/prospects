@@ -388,12 +388,19 @@ criarBotaoColarMensagem(async () => {
     showToast("Não encontrei a caixa de mensagem — abra uma conversa e tente de novo.");
     return;
   }
-  const texto = await obterMensagemPadrao();
-  if (!texto) {
+  const opcoes = await obterOpcoesMensagem();
+  if (opcoes.length === 0) {
     showToast("Não consegui carregar a mensagem (msg.txt).");
     return;
   }
-  inserirTextoNoCampo(caixaTexto, texto);
+  if (opcoes.length === 1) {
+    inserirTextoNoCampo(caixaTexto, opcoes[0].texto);
+    return;
+  }
+  mostrarMenuOpcoesMensagem(opcoes, (texto) => {
+    const caixaAtual = obterCaixaDeTextoWhatsapp() || caixaTexto;
+    inserirTextoNoCampo(caixaAtual, texto);
+  });
 });
 
 criarBotaoFlutuante(async () => {
