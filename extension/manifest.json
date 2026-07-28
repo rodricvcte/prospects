@@ -17,6 +17,12 @@
     "default_popup": "popup.html",
     "default_title": "Prospects"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["msg.txt"],
+      "matches": ["https://www.instagram.com/*", "https://web.whatsapp.com/*"]
+    }
+  ],
   "content_scripts": [
     {
       "matches": ["https://www.instagram.com/*"],

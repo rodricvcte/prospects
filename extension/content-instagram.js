@@ -79,7 +79,14 @@ function extrairNomeExibicaoInstagram() {
     }
   }
 
-  console.log("[Prospects] extrairNomeExibicaoInstagram: heurística de irmãos falhou, tentando fallback (title da página)");
+  console.log("[Prospects] extrairNomeExibicaoInstagram: heurística de irmãos falhou, tentando fallback (cabeçalho da conversa aberta)");
+  const nomeConversa = extrairNomeConversaAbertaInstagram();
+  if (nomeConversa) {
+    console.log("[Prospects] extrairNomeExibicaoInstagram: resultado do fallback de conversa =", JSON.stringify(nomeConversa));
+    return nomeConversa;
+  }
+
+  console.log("[Prospects] extrairNomeExibicaoInstagram: fallback de conversa também falhou, tentando fallback (title da página)");
   const tituloMatch = document.title.match(/^(.*?)\s*\(@/);
   const resultado = tituloMatch ? tituloMatch[1].trim() : "";
   console.log("[Prospects] extrairNomeExibicaoInstagram: resultado do fallback =", JSON.stringify(resultado));
@@ -476,6 +483,92 @@ function obterCaixaDeTextoInstagram() {
   );
 }
 
+// Detecta o @username da própria conta logada nesta aba (o "Sender"), pra não
+// depender da seleção manual no popup — mesmo espírito de
+// obterNumeroProprioWhatsapp em content-whatsapp.js. Confirmado no DOM real:
+// o ícone de avatar da barra de navegação lateral é um <a href="/<username>/">
+// cujo texto acessível (rótulo pra leitor de tela, sempre presente mesmo com
+// a barra colapsada em ícones) é exatamente "Perfil"/"Profile" — único entre
+// os demais links de navegação de segmento único (ex: "/reels/", "/explore/",
+// que têm texto "Reels"/"Pesquisa"). Multi-conta: cada aba loga só uma conta
+// por vez no Instagram Web, então isso já reflete a conta ativa nesta aba.
+function obterUsernameProprioInstagram() {
+  try {
+    const linkPerfil = Array.from(document.querySelectorAll('a[href^="/"]')).find((a) => {
+      const href = a.getAttribute("href") || "";
+      if (!/^\/[^/]+\/$/.test(href)) return false;
+      const texto = a.textContent.trim().toLowerCase();
+      return texto === "perfil" || texto === "profile";
+    });
+    if (!linkPerfil) {
+      console.log("[Prospects] obterUsernameProprioInstagram: link de perfil (nav) não encontrado");
+      return null;
+    }
+    const username = linkPerfil.getAttribute("href").split("/").filter(Boolean)[0] || null;
+    console.log("[Prospects] obterUsernameProprioInstagram: username =", username);
+    return username;
+  } catch (erro) {
+    console.log("[Prospects] obterUsernameProprioInstagram: erro =", erro);
+    return null;
+  }
+}
+
+// Detecta o @username do interlocutor da conversa do Direct atualmente aberta
+// (o "Receiver"), pra funcionar quando o approach é registrado de dentro da
+// conversa em vez da página de perfil — location.pathname não ajuda aqui
+// porque a URL de uma thread é "/direct/t/<id>/", sem o username. Confirmado
+// no DOM real: o cabeçalho da conversa tem um link "Ver perfil"/"View profile"
+// (e também um link com aria-label "Open the profile page of <username>" no
+// avatar, usado como reforço) apontando pra "/<username>/".
+function extrairUsernameConversaAbertaInstagram() {
+  try {
+    const linkConversa = Array.from(document.querySelectorAll('a[href^="/"]')).find((a) => {
+      const href = a.getAttribute("href") || "";
+      if (!/^\/[^/]+\/$/.test(href)) return false;
+      const texto = a.textContent.trim().toLowerCase();
+      const ariaLabel = (a.getAttribute("aria-label") || "").toLowerCase();
+      return texto === "ver perfil" || texto === "view profile" || ariaLabel.startsWith("open the profile page of");
+    });
+    if (!linkConversa) {
+      console.log("[Prospects] extrairUsernameConversaAbertaInstagram: link 'Ver perfil' não encontrado (sem conversa aberta?)");
+      return null;
+    }
+    const username = linkConversa.getAttribute("href").split("/").filter(Boolean)[0] || null;
+    console.log("[Prospects] extrairUsernameConversaAbertaInstagram: username =", username);
+    return username;
+  } catch (erro) {
+    console.log("[Prospects] extrairUsernameConversaAbertaInstagram: erro =", erro);
+    return null;
+  }
+}
+
+// Nome de exibição de dentro de uma conversa do Direct (sem header de perfil
+// com h1/h2 pra usar a heurística de extrairNomeExibicaoInstagram) — mesmo
+// link de avatar da conversa (aria-label "Open the profile page of
+// <username>", confirmado no DOM real), só que lendo o heading interno em vez
+// do href.
+function extrairNomeConversaAbertaInstagram() {
+  try {
+    const linkAvatar = Array.from(document.querySelectorAll('a[href^="/"]')).find((a) => {
+      const href = a.getAttribute("href") || "";
+      if (!/^\/[^/]+\/$/.test(href)) return false;
+      const ariaLabel = (a.getAttribute("aria-label") || "").toLowerCase();
+      return ariaLabel.startsWith("open the profile page of");
+    });
+    if (!linkAvatar) {
+      console.log("[Prospects] extrairNomeConversaAbertaInstagram: link de avatar da conversa não encontrado");
+      return "";
+    }
+    const heading = linkAvatar.querySelector('[role="heading"], h1, h2');
+    const nome = heading ? heading.textContent.trim() : "";
+    console.log("[Prospects] extrairNomeConversaAbertaInstagram: nome =", JSON.stringify(nome));
+    return nome;
+  } catch (erro) {
+    console.log("[Prospects] extrairNomeConversaAbertaInstagram: erro =", erro);
+    return "";
+  }
+}
+
 criarBotaoColarMensagem(async () => {
   console.log("[Prospects] === Colar mensagem clicado (Instagram) ===");
   const caixaTexto = obterCaixaDeTextoInstagram();
@@ -488,29 +581,45 @@ criarBotaoColarMensagem(async () => {
     showToast("Não consegui carregar a mensagem (msg.txt).");
     return;
   }
-  inserirTextoNoCampo(caixaTexto, texto);
+  await inserirTextoNoCampo(caixaTexto, texto);
 });
 
 criarBotaoFlutuante(() => {
   console.log("[Prospects] === Registrar Approach clicado (Instagram) ===");
-  const username = extrairUsernameDoPerfil(location.pathname) || "";
-  console.log("[Prospects] username extraído da URL =", JSON.stringify(username));
+
+  // contaDestino: tenta primeiro pela URL (perfil aberto na aba); se não achar
+  // (ex: dentro de uma conversa do Direct, cuja URL é "/direct/t/<id>/" e não
+  // tem o username), cai pro cabeçalho da conversa aberta.
+  const username = extrairUsernameDoPerfil(location.pathname) || extrairUsernameConversaAbertaInstagram() || "";
+  console.log("[Prospects] username (destino) resolvido =", JSON.stringify(username));
+
+  const contaOrigemAuto = obterUsernameProprioInstagram();
+  console.log("[Prospects] contaOrigem (própria conta logada) resolvida =", JSON.stringify(contaOrigemAuto));
 
   const nomeProspect = extrairNomeExibicaoInstagram();
   const regiao = extrairRegiaoDoEndereco();
   const { texto: msgUtilizada, dataHora: dataHoraApproach } = extrairUltimaMensagemEnviadaInstagram();
 
   console.log("[Prospects] prefill final enviado ao formulário:", {
+    contaOrigemAuto,
     contaDestino: username,
     nomeProspect,
     regiao,
     msgUtilizada,
     dataHoraApproach,
+    origemInstagram: username,
   });
 
   abrirFormularioApproach({
     canal: "instagram",
+    contaOrigem: contaOrigemAuto || undefined,
     contaDestino: username,
+    // Mesma lógica de captura do destino (URL do perfil ou cabeçalho da
+    // conversa aberta) — repetida aqui a pedido: o approach é de Instagram,
+    // então "origem_instagram" reflete o próprio @ do prospect, igual ao
+    // destino. Redundante com contaDestino nesse canal, mas mantém o campo
+    // sempre preenchido pra filtro/busca funcionar igual nos dois canais.
+    origemInstagram: username || undefined,
     nomeProspect,
     regiao,
     msgUtilizada,

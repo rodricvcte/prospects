@@ -145,7 +145,7 @@ const PROSPECTS_EXT_CSS = `
 
   .botao-flutuante {
     position: fixed;
-    bottom: 24px;
+    bottom: 200px;
     right: 24px;
     z-index: 2147483000;
     background: #171717;
@@ -162,7 +162,7 @@ const PROSPECTS_EXT_CSS = `
 
   .botao-flutuante-msg {
     position: fixed;
-    bottom: 74px;
+    bottom: 250px;
     right: 24px;
     z-index: 2147483000;
     background: #2563eb;
@@ -341,21 +341,43 @@ async function obterMensagemPadrao() {
 }
 
 // Insere texto numa caixa contenteditable (WhatsApp Web e Instagram Direct
-// usam editores estilo Lexical, não um <textarea> comum) simulando o cursor
-// no final e usando execCommand("insertText") — diferente de setar
-// .textContent ou disparar eventos sintéticos, isso gera um evento de input
-// "de verdade" que o editor escuta e processa corretamente (inclusive
-// quebras de linha dentro do texto, sem disparar o envio da mensagem, já
-// que não é um keydown de Enter de verdade).
-function inserirTextoNoCampo(elemento, texto) {
+// usam editores estilo Lexical, não um <textarea> comum) simulando um Ctrl+V
+// de verdade: um ClipboardEvent "paste" com o texto pronto, disparado no
+// campo focado. execCommand("insertText"/"insertLineBreak") foi tentado
+// antes, mas o Lexical ignora/colapsa esses comandos legados e as linhas em
+// branco somem. Simular o paste é o mesmo caminho que o navegador usa
+// quando o usuário cola manualmente (Ctrl+V) — e colar manualmente nesses
+// dois sites já preserva parágrafos corretamente, então o editor claramente
+// sabe processar isso via evento de paste.
+// Seleciona TODO o conteúdo atual do campo (sem collapse) antes do paste —
+// se já houver algo digitado/colado antes, o paste substitui a seleção
+// inteira em vez de só acrescentar no final, igual um Ctrl+A + Ctrl+V manual.
+// O editor (Lexical) só sincroniza a seleção que ele "enxerga" de forma
+// assíncrona (via selectionchange, processado num microtask/rAF) — disparar
+// o paste na sequência, sem esperar, faz o Lexical ainda achar que o cursor
+// está no fim (de uma digitação anterior) e SÓ ACRESCENTA o texto colado em
+// vez de substituir a seleção. Confirmado ao vivo no WhatsApp Web: sem essa
+// espera, o texto antigo continuava lá; com ela, a seleção é substituída
+// corretamente. Por isso a função é async e espera um rAF + setTimeout(50)
+// entre selecionar e colar.
+async function inserirTextoNoCampo(elemento, texto) {
   elemento.focus();
   const selecao = document.getSelection();
   selecao.removeAllRanges();
   const range = document.createRange();
   range.selectNodeContents(elemento);
-  range.collapse(false);
   selecao.addRange(range);
-  document.execCommand("insertText", false, texto);
+
+  await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 50)));
+
+  const dataTransfer = new DataTransfer();
+  dataTransfer.setData("text/plain", texto);
+  const evento = new ClipboardEvent("paste", {
+    clipboardData: dataTransfer,
+    bubbles: true,
+    cancelable: true,
+  });
+  elemento.dispatchEvent(evento);
 }
 
 function campoTexto(label, valor, { textarea = false, fixo = false } = {}) {
@@ -472,26 +494,26 @@ function abrirFormularioApproach(prefill) {
     const { wrapper: wDestino, input: inputDestino } = campoTexto("Receiver", prefill.contaDestino);
     modal.appendChild(wDestino);
 
-    // Só faz sentido pra approaches de WhatsApp (no Instagram a própria conta
-    // destino já É o @). Sempre visível e editável nesse caso — mesmo sem
-    // detecção automática — pra o usuário poder preencher/corrigir manualmente
-    // (antes só aparecia com prefill, sem jeito de adicionar à mão).
-    let inputOrigemInstagram = null;
-    if (prefill.canal === "whatsapp") {
-      const { wrapper: wOrigemInstagram, input } = campoTexto("Origem (Instagram)", prefill.origemInstagram || "");
-      inputOrigemInstagram = input;
-      modal.appendChild(wOrigemInstagram);
+    // Sempre visível e editável nos dois canais — mesmo sem detecção
+    // automática no Instagram — pra o usuário poder preencher/corrigir
+    // manualmente (antes só aparecia pra approaches de WhatsApp, por engano;
+    // no Instagram serve pra registrar o @ de origem quando o approach em si
+    // saiu por lá mas o prospect também tem número de WhatsApp já visto).
+    const { wrapper: wOrigemInstagram, input: inputOrigemInstagram } = campoTexto(
+      "Origem (Instagram)",
+      prefill.origemInstagram || ""
+    );
+    modal.appendChild(wOrigemInstagram);
 
-      // origemInstagramConfianca "baixa" = veio do fallback de "último perfil
-      // clicado", sem ligação confirmada com este número — não é uma detecção
-      // exata, então avisamos explicitamente pro usuário conferir/corrigir
-      // antes de salvar, em vez de aplicar como se fosse certeza.
-      if (prefill.origemInstagramConfianca === "baixa") {
-        const aviso = document.createElement("div");
-        aviso.style.cssText = "font-size:11px;color:#b45309;margin:-8px 0 12px;";
-        aviso.textContent = "⚠️ Detecção fraca (último perfil visto) — confira antes de salvar.";
-        modal.appendChild(aviso);
-      }
+    // origemInstagramConfianca "baixa" = veio do fallback de "último perfil
+    // clicado", sem ligação confirmada com este número — não é uma detecção
+    // exata, então avisamos explicitamente pro usuário conferir/corrigir
+    // antes de salvar, em vez de aplicar como se fosse certeza.
+    if (prefill.origemInstagramConfianca === "baixa") {
+      const aviso = document.createElement("div");
+      aviso.style.cssText = "font-size:11px;color:#b45309;margin:-8px 0 12px;";
+      aviso.textContent = "⚠️ Detecção fraca (último perfil visto) — confira antes de salvar.";
+      modal.appendChild(aviso);
     }
 
     const { wrapper: wNome, input: inputNome } = campoTexto("Nome do prospect", prefill.nomeProspect);

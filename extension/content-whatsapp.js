@@ -393,7 +393,7 @@ criarBotaoColarMensagem(async () => {
     showToast("Não consegui carregar a mensagem (msg.txt).");
     return;
   }
-  inserirTextoNoCampo(caixaTexto, texto);
+  await inserirTextoNoCampo(caixaTexto, texto);
 });
 
 criarBotaoFlutuante(async () => {
