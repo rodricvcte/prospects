@@ -478,11 +478,13 @@ function mostrarMenuOpcoesMensagem(opcoes, onEscolher) {
 
 // Insere texto numa caixa contenteditable (WhatsApp Web e Instagram Direct
 // usam editores estilo Lexical, não um <textarea> comum) simulando o cursor
-// no final e usando execCommand("insertText") — diferente de setar
-// .textContent ou disparar eventos sintéticos, isso gera um evento de input
-// "de verdade" que o editor escuta e processa corretamente (inclusive
-// quebras de linha dentro do texto, sem disparar o envio da mensagem, já
-// que não é um keydown de Enter de verdade).
+// no final e disparando um evento "paste" de verdade com clipboardData —
+// diferente de execCommand("insertText"), que insere segmento por segmento e
+// faz esses editores colapsarem linhas em branco (perdendo os parágrafos),
+// um evento paste real é processado pelo parser de colagem do próprio editor,
+// que preserva "\n\n" como quebra de parágrafo do mesmo jeito que um Ctrl+V
+// de verdade preservaria. Sem disparar o envio da mensagem, já que não é um
+// keydown de Enter de verdade.
 function inserirTextoNoCampo(elemento, texto) {
   elemento.focus();
   const selecao = document.getSelection();
@@ -491,7 +493,20 @@ function inserirTextoNoCampo(elemento, texto) {
   range.selectNodeContents(elemento);
   range.collapse(false);
   selecao.addRange(range);
-  document.execCommand("insertText", false, texto);
+
+  const dadosClipboard = new DataTransfer();
+  dadosClipboard.setData("text/plain", texto);
+  const eventoColar = new ClipboardEvent("paste", {
+    clipboardData: dadosClipboard,
+    bubbles: true,
+    cancelable: true,
+  });
+  const naoTratadoPeloEditor = elemento.dispatchEvent(eventoColar);
+  if (naoTratadoPeloEditor) {
+    // Editor não tem listener de paste (ou não tratou o evento) — cai pro
+    // insertText como fallback, pelo menos o texto entra no campo.
+    document.execCommand("insertText", false, texto);
+  }
 }
 
 function campoTexto(label, valor, { textarea = false, fixo = false } = {}) {

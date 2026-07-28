@@ -28,5 +28,11 @@
       "js": ["config.js", "normalize.js", "ddd.js", "content-common.js", "content-whatsapp.js"],
       "run_at": "document_idle"
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["msg.txt"],
+      "matches": ["https://www.instagram.com/*", "https://web.whatsapp.com/*"]
+    }
   ]
 }
