@@ -22,7 +22,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<"/api/prospe
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  const { canal, conta_origem, conta_destino, recusado, interessado, estagio, notas } = body;
+  const { canal, conta_origem, conta_destino, recusado, interessado, estagio, notas, rascunho_url } = body;
 
   if (canal !== undefined && canal !== "instagram" && canal !== "whatsapp") {
     return NextResponse.json({ error: "canal deve ser 'instagram' ou 'whatsapp'" }, { status: 400 });
@@ -44,6 +44,9 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<"/api/prospe
   }
   if (notas !== undefined && notas !== null && typeof notas !== "string") {
     return NextResponse.json({ error: "notas deve ser texto" }, { status: 400 });
+  }
+  if (rascunho_url !== undefined && rascunho_url !== null && typeof rascunho_url !== "string") {
+    return NextResponse.json({ error: "rascunho_url deve ser texto" }, { status: 400 });
   }
 
   const input: UpdateProspectInput = {};
@@ -69,6 +72,10 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<"/api/prospe
   if (interessado !== undefined) input.interessado = interessado;
   if (estagio !== undefined) input.estagio = estagio;
   if (notas !== undefined) input.notas = notas;
+  if (rascunho_url !== undefined) {
+    const limpo = typeof rascunho_url === "string" ? rascunho_url.trim() : rascunho_url;
+    input.rascunho_url = limpo ? (/^https?:\/\//i.test(limpo) ? limpo : `https://${limpo}`) : null;
+  }
 
   try {
     const prospect = await updateProspect(id, input);

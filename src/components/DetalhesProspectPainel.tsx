@@ -38,13 +38,19 @@ export default function DetalhesProspectPainel({
   const [notas, setNotas] = useState(prospect.notas ?? "");
   const [status, setStatus] = useState<"idle" | "salvando" | "salvo" | "erro">("idle");
   const notasSalvas = useRef(prospect.notas ?? "");
+  const [rascunhoUrl, setRascunhoUrl] = useState(prospect.rascunho_url ?? "");
+  const [statusRascunho, setStatusRascunho] = useState<"idle" | "salvando" | "salvo" | "erro">("idle");
+  const rascunhoSalvo = useRef(prospect.rascunho_url ?? "");
   const [modalConversaoAberto, setModalConversaoAberto] = useState(false);
 
   useEffect(() => {
     setNotas(prospect.notas ?? "");
     notasSalvas.current = prospect.notas ?? "";
     setStatus("idle");
-  }, [prospect.id, prospect.notas]);
+    setRascunhoUrl(prospect.rascunho_url ?? "");
+    rascunhoSalvo.current = prospect.rascunho_url ?? "";
+    setStatusRascunho("idle");
+  }, [prospect.id, prospect.notas, prospect.rascunho_url]);
 
   const salvarNotas = async () => {
     if (notas === notasSalvas.current) return;
@@ -65,6 +71,29 @@ export default function DetalhesProspectPainel({
       onUpdated(data.prospect);
     } catch {
       setStatus("erro");
+    }
+  };
+
+  const salvarRascunho = async () => {
+    if (rascunhoUrl === rascunhoSalvo.current) return;
+    setStatusRascunho("salvando");
+    try {
+      const res = await fetch(`/api/prospects/${prospect.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rascunho_url: rascunhoUrl.trim() || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatusRascunho("erro");
+        return;
+      }
+      setRascunhoUrl(data.prospect.rascunho_url ?? "");
+      rascunhoSalvo.current = data.prospect.rascunho_url ?? "";
+      setStatusRascunho("salvo");
+      onUpdated(data.prospect);
+    } catch {
+      setStatusRascunho("erro");
     }
   };
 
@@ -105,6 +134,43 @@ export default function DetalhesProspectPainel({
             )}
           </div>
         )}
+
+        <div className="mb-5">
+          <div className="mb-1 flex items-center justify-between">
+            <label className="block text-xs font-medium text-neutral-500">Rascunho</label>
+            {statusRascunho === "salvando" && <span className="text-xs text-neutral-400">Salvando…</span>}
+            {statusRascunho === "salvo" && <span className="text-xs text-emerald-600">Salvo</span>}
+            {statusRascunho === "erro" && <span className="text-xs text-red-600">Erro ao salvar</span>}
+          </div>
+          <input
+            type="text"
+            value={rascunhoUrl}
+            onChange={(e) => {
+              setRascunhoUrl(e.target.value);
+              setStatusRascunho("idle");
+            }}
+            onBlur={salvarRascunho}
+            placeholder="https://…"
+            className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none"
+          />
+          {prospect.rascunho_url && (
+            <a
+              href={prospect.rascunho_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 block overflow-hidden rounded-md border border-neutral-200 hover:border-neutral-300"
+            >
+              <img
+                src={`https://s.wordpress.com/mshots/v1/${encodeURIComponent(prospect.rascunho_url)}?w=600&h=340`}
+                alt="Miniatura do rascunho"
+                className="block h-40 w-full bg-neutral-50 object-cover object-top"
+              />
+              <span className="block truncate border-t border-neutral-200 px-2 py-1 text-xs text-blue-600">
+                {prospect.rascunho_url}
+              </span>
+            </a>
+          )}
+        </div>
 
         <dl className="flex flex-col gap-4 text-sm">
           <div>

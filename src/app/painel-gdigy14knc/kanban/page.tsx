@@ -197,25 +197,35 @@ export default function KanbanProspects() {
                     }}
                     onDragEnd={() => setArrastandoId(null)}
                     onClick={() => setSelecionado(p)}
-                    className={`cursor-pointer rounded-md border border-neutral-200 bg-white p-3 text-left shadow-sm hover:border-neutral-300 ${
+                    className={`cursor-pointer overflow-hidden rounded-md border border-neutral-200 bg-white text-left shadow-sm hover:border-neutral-300 ${
                       arrastandoId === p.id ? "opacity-40" : ""
                     }`}
                   >
-                    <div className="mb-1.5 flex items-start justify-between gap-1">
-                      <p className="truncate text-sm font-medium text-neutral-900" title={p.nome_prospect || undefined}>
-                        {p.nome_prospect || "—"}
-                      </p>
-                      {prospectsConvertidos.has(p.id) && (
-                        <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                          Cliente
-                        </span>
-                      )}
+                    {p.rascunho_url && (
+                      <img
+                        src={`https://s.wordpress.com/mshots/v1/${encodeURIComponent(p.rascunho_url)}?w=400&h=220`}
+                        alt=""
+                        draggable={false}
+                        className="h-24 w-full bg-neutral-50 object-cover object-top"
+                      />
+                    )}
+                    <div className="p-3">
+                      <div className="mb-1.5 flex items-start justify-between gap-1">
+                        <p className="truncate text-sm font-medium text-neutral-900" title={p.nome_prospect || undefined}>
+                          {p.nome_prospect || "—"}
+                        </p>
+                        {prospectsConvertidos.has(p.id) && (
+                          <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                            Cliente
+                          </span>
+                        )}
+                      </div>
+                      <div className="mb-1.5 flex items-center gap-1.5">
+                        <CanalBadge canal={p.canal} />
+                        {p.regiao && <span className="truncate text-xs text-neutral-500">{p.regiao}</span>}
+                      </div>
+                      <p className="text-xs text-neutral-400">{formatarDataHora(p.data_hr_approach)}</p>
                     </div>
-                    <div className="mb-1.5 flex items-center gap-1.5">
-                      <CanalBadge canal={p.canal} />
-                      {p.regiao && <span className="truncate text-xs text-neutral-500">{p.regiao}</span>}
-                    </div>
-                    <p className="text-xs text-neutral-400">{formatarDataHora(p.data_hr_approach)}</p>
                   </div>
                 ))}
                 {!loading && cards.length === 0 && (

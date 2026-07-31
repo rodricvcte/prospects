@@ -28,6 +28,7 @@ export interface Prospect {
   origem_instagram: string | null;
   estagio: Estagio;
   notas: string | null;
+  rascunho_url: string | null;
   created_at: string;
 }
 
@@ -189,6 +190,7 @@ export interface UpdateProspectInput {
   interessado?: boolean;
   estagio?: Estagio;
   notas?: string | null;
+  rascunho_url?: string | null;
 }
 
 export async function updateProspect(id: string, input: UpdateProspectInput): Promise<Prospect> {
