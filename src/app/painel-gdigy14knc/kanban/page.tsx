@@ -21,6 +21,17 @@ function formatarDataHora(iso: string): string {
   });
 }
 
+function linkContato(p: Prospect): string | null {
+  if (p.canal === "instagram") {
+    const handle = p.conta_destino.trim().replace(/^@/, "");
+    return handle ? `https://instagram.com/${handle}` : null;
+  }
+  let digitos = p.conta_destino.replace(/\D/g, "");
+  if (!digitos) return null;
+  if (!digitos.startsWith("55") && digitos.length <= 11) digitos = `55${digitos}`;
+  return `https://wa.me/${digitos}`;
+}
+
 function CanalBadge({ canal }: { canal: Canal }) {
   const estilos =
     canal === "instagram"
@@ -224,6 +235,18 @@ export default function KanbanProspects() {
                         <CanalBadge canal={p.canal} />
                         {p.regiao && <span className="truncate text-xs text-neutral-500">{p.regiao}</span>}
                       </div>
+                      {linkContato(p) && (
+                        <a
+                          href={linkContato(p)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          draggable={false}
+                          onClick={(e) => e.stopPropagation()}
+                          className="mb-1.5 block truncate text-xs text-blue-600 hover:underline"
+                        >
+                          {p.conta_destino}
+                        </a>
+                      )}
                       <p className="text-xs text-neutral-400">{formatarDataHora(p.data_hr_approach)}</p>
                     </div>
                   </div>

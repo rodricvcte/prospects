@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Canal, Prospect } from "@/lib/prospects";
 import type { Cliente } from "@/lib/clientes";
 import ConverterClienteModal from "./ConverterClienteModal";
+import EditarProspectModal from "./EditarProspectModal";
 
 const CANAL_LABEL: Record<Canal, string> = {
   instagram: "Instagram",
@@ -42,6 +43,7 @@ export default function DetalhesProspectPainel({
   const [statusRascunho, setStatusRascunho] = useState<"idle" | "salvando" | "salvo" | "erro">("idle");
   const rascunhoSalvo = useRef(prospect.rascunho_url ?? "");
   const [modalConversaoAberto, setModalConversaoAberto] = useState(false);
+  const [editando, setEditando] = useState(false);
 
   useEffect(() => {
     setNotas(prospect.notas ?? "");
@@ -107,14 +109,23 @@ export default function DetalhesProspectPainel({
           <h2 className="text-lg font-semibold text-neutral-900">
             {prospect.nome_prospect || "Prospect"}
           </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-neutral-400 hover:text-neutral-600"
-            aria-label="Fechar"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setEditando(true)}
+              className="text-sm font-medium text-neutral-400 hover:text-neutral-900"
+            >
+              Editar
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-neutral-400 hover:text-neutral-600"
+              aria-label="Fechar"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {prospect.estagio === "Em desenvolvimento" && (
@@ -252,6 +263,17 @@ export default function DetalhesProspectPainel({
           onConverted={(cliente) => {
             setModalConversaoAberto(false);
             onConvertido(cliente);
+          }}
+        />
+      )}
+
+      {editando && (
+        <EditarProspectModal
+          prospect={prospect}
+          onClose={() => setEditando(false)}
+          onSaved={(atualizado) => {
+            setEditando(false);
+            onUpdated(atualizado);
           }}
         />
       )}
