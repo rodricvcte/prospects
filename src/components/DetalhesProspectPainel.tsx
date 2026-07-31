@@ -88,7 +88,7 @@ export default function DetalhesProspectPainel({
           </button>
         </div>
 
-        {prospect.estagio === "Fechado" && (
+        {prospect.estagio === "Em desenvolvimento" && (
           <div className="mb-5">
             {jaConvertido ? (
               <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">

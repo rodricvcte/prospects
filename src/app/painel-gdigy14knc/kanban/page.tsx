@@ -90,7 +90,7 @@ export default function KanbanProspects() {
   const colunas = useMemo(() => {
     const mapa = new Map<Estagio, Prospect[]>(ESTAGIOS_KANBAN.map((e) => [e, []]));
     for (const p of prospects) {
-      (mapa.get(p.estagio) ?? mapa.get("Respondeu")!).push(p);
+      (mapa.get(p.estagio) ?? mapa.get("Mais Informações")!).push(p);
     }
     return mapa;
   }, [prospects]);
@@ -163,7 +163,7 @@ export default function KanbanProspects() {
               } ${
                 emHover
                   ? "bg-neutral-100"
-                  : estagio === "Recusado" || estagio === "Esfriou"
+                  : estagio === "Esfriou"
                     ? "bg-neutral-100"
                     : "bg-white"
               }`}

@@ -4,22 +4,20 @@
 // direto puxaria o cliente Supabase (server-only) pro bundle do navegador.
 export type Estagio =
   | "Novo"
-  | "Respondeu"
+  | "Mais Informações"
+  | "Rascunho"
   | "Negociando"
-  | "Fechado"
   | "Em desenvolvimento"
   | "Entregue"
-  | "Recusado"
   | "Esfriou";
 
 export const ESTAGIOS: Estagio[] = [
   "Novo",
-  "Respondeu",
+  "Mais Informações",
+  "Rascunho",
   "Negociando",
-  "Fechado",
   "Em desenvolvimento",
   "Entregue",
-  "Recusado",
   "Esfriou",
 ];
 

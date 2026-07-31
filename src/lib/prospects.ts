@@ -195,10 +195,10 @@ export async function updateProspect(id: string, input: UpdateProspectInput): Pr
   const updateData: Record<string, unknown> = { ...input };
 
   const precisaContaAtual = input.canal !== undefined || input.conta_destino !== undefined;
-  // Marcar interessado precisa empurrar o estagio pra "Respondeu" (senão o
-  // card nunca sai da coluna "Novo", que fica de fora do Kanban) — mas só
-  // quando quem chamou não mandou um estagio explícito, e só a partir de
-  // "Novo", pra não regredir alguém que já tá em "Negociando" etc.
+  // Marcar interessado precisa empurrar o estagio pra "Mais Informações"
+  // (senão o card nunca sai da coluna "Novo", que fica de fora do Kanban) —
+  // mas só quando quem chamou não mandou um estagio explícito, e só a partir
+  // de "Novo", pra não regredir alguém que já tá em "Negociando" etc.
   const precisaEstagioAtual = input.interessado === true && input.estagio === undefined;
 
   let atual: Prospect | null = null;
@@ -213,7 +213,7 @@ export async function updateProspect(id: string, input: UpdateProspectInput): Pr
   }
 
   if (precisaEstagioAtual && atual!.estagio === "Novo") {
-    updateData.estagio = "Respondeu";
+    updateData.estagio = "Mais Informações";
   }
 
   // canal/conta_destino mudando exige recalcular conta_destino_normalizada e
