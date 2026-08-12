@@ -589,16 +589,40 @@ function coletarMensagensDeTexto(mapa, estado, mapaRemetentePorNome, contatoNome
   });
 }
 
-// Passo 2: mensagens de MÍDIA sem legenda — não têm data-pre-plain-text, só
-// dá pra achar via a própria row com ícone de cauda. Só entra aqui quando a
-// row não tem NENHUM [data-pre-plain-text] dentro (senão já foi coberta pelo
-// passo 1, mensagem de texto de verdade). Usa a última data conhecida como
-// aproximação. Chave de dedup SEM contador/índice de propósito: um índice
-// que muda a cada nova chamada (a varredura re-coleta a mesma mídia a cada
-// passo de rolagem) faria a MESMA mídia entrar várias vezes como linhas
-// diferentes — pior que o problema oposto. O trade-off aceito aqui é
-// subcontar (duas mídias sem legenda do mesmo remetente no mesmo minuto
-// colapsam numa só) em vez de duplicar.
+// Tipo da mídia via data-testid/data-icon dentro da row. GIF e vídeo
+// confirmados no DOM real (data-testid "image-thumb-gif"/
+// "chat_thread_gif_thumb_image" pra GIF; "video-content" + ícone
+// "media-play"/"video-play" pra vídeo). Os demais (áudio, imagem estática,
+// figurinha, documento, localização, contato) seguem o mesmo padrão de
+// nomenclatura observado mas não foram vistos ao vivo ainda — se aparecerem
+// com o rótulo errado, é aqui que ajusta.
+function detectarTipoMidia(linha) {
+  const testids = Array.from(linha.querySelectorAll('[data-testid]')).map((el) => el.getAttribute('data-testid') || "");
+  const icones = Array.from(linha.querySelectorAll('[data-icon]')).map((el) => el.getAttribute('data-icon') || "");
+  const contemTestid = (parte) => testids.some((t) => t.toLowerCase().includes(parte));
+  const contemIcone = (parte) => icones.some((i) => i.toLowerCase().includes(parte));
+
+  if (contemTestid('gif')) return "[GIF]";
+  if (contemTestid('video') || contemIcone('video-play') || contemIcone('media-play')) return "[vídeo]";
+  if (contemTestid('audio') || contemIcone('audio') || contemIcone('ptt')) return "[áudio]";
+  if (contemTestid('sticker')) return "[figurinha]";
+  if (contemTestid('document')) return "[documento]";
+  if (contemTestid('location')) return "[localização]";
+  if (contemTestid('contact') || contemTestid('vcard')) return "[contato]";
+  if (contemTestid('image') || linha.querySelector('img')) return "[imagem]";
+  return "[mensagem sem texto]";
+}
+
+// Passo 2: mensagens de MÍDIA — não têm data-pre-plain-text, só dá pra achar
+// via a própria row com ícone de cauda. Só entra aqui quando a row não tem
+// NENHUM [data-pre-plain-text] dentro (senão já foi coberta pelo passo 1,
+// mensagem de texto de verdade). Usa a última data conhecida como
+// aproximação. Chave de dedup usa o data-id da mensagem (confirmado no DOM
+// real: cada row tem um container filho com data-testid="conv-msg-<ID>" e
+// data-id="<ID>" — id único e estável por mensagem, bem mais confiável que
+// remetente+minuto). Sem data-id disponível, cai no fallback antigo
+// (remetente+data), que ainda pode colapsar duas mídias do mesmo tipo no
+// mesmo minuto — mais seguro que duplicar.
 function coletarMensagensDeMidia(mapa, estado) {
   document.querySelectorAll('#main [role="row"]').forEach((linha) => {
     const enviada = !!linha.querySelector('[data-icon="tail-out"]');
@@ -608,9 +632,14 @@ function coletarMensagensDeMidia(mapa, estado) {
 
     const remetente = enviada ? "Agência" : "Lead";
     const dataHoraIso = estado.ultimaDataConhecida ? estado.ultimaDataConhecida.toISOString() : null;
-    const chave = `midia|${remetente}|${dataHoraIso || ""}`;
+    const tipo = detectarTipoMidia(linha);
+
+    const idEl = linha.querySelector('[data-id]');
+    const dataId = idEl ? idEl.getAttribute('data-id') : null;
+    const chave = dataId ? `midia-id|${dataId}` : `midia|${remetente}|${tipo}|${dataHoraIso || ""}`;
+
     if (!mapa.has(chave)) {
-      mapa.set(chave, { remetente, texto: "[mensagem sem texto]", data_hora: dataHoraIso });
+      mapa.set(chave, { remetente, texto: tipo, data_hora: dataHoraIso });
     }
   });
 }
