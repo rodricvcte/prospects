@@ -29,6 +29,8 @@ export interface Prospect {
   estagio: Estagio;
   notas: string | null;
   rascunho_url: string | null;
+  historico_conversa_whatsapp: string | null;
+  historico_capturado_em: string | null;
   created_at: string;
 }
 
@@ -264,4 +266,62 @@ export async function updateProspect(id: string, input: UpdateProspectInput): Pr
 export async function deleteProspect(id: string): Promise<void> {
   const { error } = await supabase.from("prospects").delete().eq("id", id);
   if (error) throw error;
+}
+
+export class ProspectNaoEncontradoError extends Error {
+  constructor() {
+    super("Nenhum prospect encontrado para este número.");
+    this.name = "ProspectNaoEncontradoError";
+  }
+}
+
+export interface MensagemConversa {
+  remetente: "Lead" | "Agência";
+  texto: string;
+  data_hora: string | null;
+}
+
+function formatarDataHoraLinha(iso: string | null): string {
+  if (!iso) return "(data não identificada)";
+  const data = new Date(iso);
+  if (Number.isNaN(data.getTime())) return "(data não identificada)";
+  const dia = String(data.getDate()).padStart(2, "0");
+  const mes = String(data.getMonth() + 1).padStart(2, "0");
+  const hora = String(data.getHours()).padStart(2, "0");
+  const minuto = String(data.getMinutes()).padStart(2, "0");
+  return `${dia}/${mes}/${data.getFullYear()} ${hora}:${minuto}`;
+}
+
+// Sobrescreve o histórico por completo em vez de fazer append/merge: como a
+// extensão sempre rola até o topo antes de capturar, cada captura já traz a
+// conversa inteira — sobrescrever mantém o dado atualizado sem precisar de
+// lógica de deduplicação.
+export async function salvarHistoricoConversaWhatsapp(
+  contaDestinoNormalizada: string,
+  mensagens: MensagemConversa[],
+): Promise<{ prospectId: string; total: number }> {
+  const { data: prospect, error: erroBusca } = await supabase
+    .from("prospects")
+    .select("id")
+    .eq("conta_destino_normalizada", contaDestinoNormalizada)
+    .maybeSingle();
+
+  if (erroBusca) throw erroBusca;
+  if (!prospect) throw new ProspectNaoEncontradoError();
+
+  const textoFormatado = mensagens
+    .map((m) => `[${formatarDataHoraLinha(m.data_hora)}] ${m.remetente}: ${m.texto}`)
+    .join("\n");
+
+  const { error: erroUpdate } = await supabase
+    .from("prospects")
+    .update({
+      historico_conversa_whatsapp: textoFormatado,
+      historico_capturado_em: new Date().toISOString(),
+    })
+    .eq("id", prospect.id);
+
+  if (erroUpdate) throw erroUpdate;
+
+  return { prospectId: prospect.id, total: mensagens.length };
 }

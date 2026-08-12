@@ -485,3 +485,119 @@ criarBotaoFlutuante(async () => {
     origemInstagramConfianca: origemInstagram ? origemInstagramConfianca : undefined,
   });
 });
+
+// --- Arquivar conversa: captura o histórico completo da conversa aberta e
+// salva no prospect correspondente (ver salvarHistoricoConversaWhatsapp no
+// servidor). Reaproveita extrairContatoWhatsapp/extrairDadosViaPainel (achar
+// o telefone) e rolarAteInicioDaConversa (carregar o histórico todo) da
+// Função 3 acima, em vez de duplicar essa lógica. ---
+
+const TEXTO_BOTAO_ARQUIVAR_PADRAO = "🗂️ Arquivar conversa";
+
+function mostrarStatusArquivar(botao, texto, { finalizar = false, atraso = 3000 } = {}) {
+  botao.textContent = texto;
+  if (finalizar) {
+    setTimeout(() => {
+      botao.disabled = false;
+      botao.textContent = TEXTO_BOTAO_ARQUIVAR_PADRAO;
+    }, atraso);
+  }
+}
+
+// Cada linha [role="row"] sem ícone de cauda (nem "tail-out" nem "tail-in") é
+// separador de dia ou mensagem de sistema (ex: "Mensagens temporárias
+// ativadas") — não é mensagem de conversa, então é ignorada. Mensagens de
+// texto trazem data completa via data-pre-plain-text (mesmo atributo usado em
+// extrairPrimeiraMensagemEnviada); mensagens de mídia sem esse atributo usam
+// a última data conhecida como aproximação, já que as linhas vêm em ordem
+// cronológica (mais antiga primeiro, depois de rolarAteInicioDaConversa).
+function extrairHistoricoConversa() {
+  const linhas = document.querySelectorAll('#main [role="row"]');
+  console.log(`[Prospects] extrairHistoricoConversa: ${linhas.length} linhas [role="row"] encontradas`);
+
+  const mensagens = [];
+  let ultimaDataConhecida = null;
+
+  linhas.forEach((linha) => {
+    const enviada = !!linha.querySelector('[data-icon="tail-out"]');
+    const recebida = !!linha.querySelector('[data-icon="tail-in"]');
+    if (!enviada && !recebida) return;
+
+    const textoEl = linha.querySelector(".selectable-text");
+    const texto = textoEl ? extrairTextoComEmojis(textoEl).trim() : "";
+
+    const prePlainTextEl = linha.querySelector("[data-pre-plain-text]");
+    const prePlainText = prePlainTextEl ? prePlainTextEl.getAttribute("data-pre-plain-text") : null;
+    const dataHora = parseDataHoraPrePlainText(prePlainText);
+    if (dataHora) ultimaDataConhecida = dataHora;
+
+    const dataHoraFinal = dataHora || ultimaDataConhecida;
+
+    mensagens.push({
+      remetente: enviada ? "Agência" : "Lead",
+      texto: texto || "[mensagem sem texto]",
+      data_hora: dataHoraFinal ? dataHoraFinal.toISOString() : null,
+    });
+  });
+
+  console.log(`[Prospects] extrairHistoricoConversa: ${mensagens.length} mensagens extraídas`);
+  return mensagens;
+}
+
+const botaoArquivarConversa = criarBotaoArquivarConversa(async () => {
+  console.log("[Prospects] === Arquivar conversa clicado (WhatsApp) ===");
+  const header = document.querySelector("#main header");
+  if (!header) {
+    mostrarStatusArquivar(botaoArquivarConversa, "Abra uma conversa primeiro", { finalizar: true, atraso: 3000 });
+    return;
+  }
+
+  botaoArquivarConversa.disabled = true;
+  mostrarStatusArquivar(botaoArquivarConversa, "Carregando histórico...");
+  await rolarAteInicioDaConversa();
+
+  mostrarStatusArquivar(botaoArquivarConversa, "Extraindo...");
+  const mensagens = extrairHistoricoConversa();
+
+  if (mensagens.length === 0) {
+    mostrarStatusArquivar(botaoArquivarConversa, "⚠️ Conversa vazia — nada capturado", { finalizar: true, atraso: 4000 });
+    return;
+  }
+
+  const contato = extrairContatoWhatsapp(header);
+  let numero = contato.numero;
+  if (!numero) {
+    console.log("[Prospects] extrairHistoricoConversa: sem número no cabeçalho, tentando painel de Dados do contato...");
+    const doPainel = await extrairDadosViaPainel(header);
+    numero = doPainel.numero;
+  }
+  if (!numero) {
+    mostrarStatusArquivar(botaoArquivarConversa, "⚠️ Não identifiquei o telefone desta conversa", { finalizar: true, atraso: 4000 });
+    return;
+  }
+
+  const numeroNormalizado = normalizarContaDestino("whatsapp", numero);
+  console.log("[Prospects] extrairHistoricoConversa: número normalizado =", numeroNormalizado, "| total de mensagens =", mensagens.length);
+
+  mostrarStatusArquivar(botaoArquivarConversa, "Salvando...");
+  chrome.runtime.sendMessage(
+    { type: "ARCHIVE_CONVERSATION", payload: { conta_destino_normalizada: numeroNormalizado, mensagens } },
+    (resposta) => {
+      if (chrome.runtime.lastError) {
+        console.log("[Prospects] extrairHistoricoConversa: erro de comunicação =", chrome.runtime.lastError);
+        mostrarStatusArquivar(botaoArquivarConversa, "❌ Erro de comunicação com a extensão", { finalizar: true, atraso: 4000 });
+        return;
+      }
+      if (!resposta || !resposta.ok) {
+        console.log("[Prospects] extrairHistoricoConversa: erro do servidor =", resposta && resposta.error);
+        mostrarStatusArquivar(botaoArquivarConversa, `❌ ${(resposta && resposta.error) || "Erro ao salvar"}`, {
+          finalizar: true,
+          atraso: 4000,
+        });
+        return;
+      }
+      console.log("[Prospects] extrairHistoricoConversa: sucesso, total salvo =", resposta.total);
+      mostrarStatusArquivar(botaoArquivarConversa, `✅ ${resposta.total} mensagens arquivadas`, { finalizar: true, atraso: 3000 });
+    },
+  );
+});

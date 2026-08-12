@@ -54,6 +54,20 @@ async function criarProspect(payload) {
   return { ok: true, prospect: data.prospect };
 }
 
+async function arquivarConversa(payload) {
+  const res = await fetch(`${API_BASE_URL}/api/prospects/conversa`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+
+  if (!res.ok) {
+    return { ok: false, error: data.error || "Erro ao arquivar conversa" };
+  }
+  return { ok: true, total: data.total };
+}
+
 chrome.runtime.onMessage.addListener((mensagem, _sender, sendResponse) => {
   if (mensagem.type === "CHECK_PROSPECT") {
     checarProspect(mensagem.canal, mensagem.valor)
@@ -64,6 +78,13 @@ chrome.runtime.onMessage.addListener((mensagem, _sender, sendResponse) => {
 
   if (mensagem.type === "CREATE_PROSPECT") {
     criarProspect(mensagem.payload)
+      .then(sendResponse)
+      .catch((erro) => sendResponse({ ok: false, error: String(erro) }));
+    return true;
+  }
+
+  if (mensagem.type === "ARCHIVE_CONVERSATION") {
+    arquivarConversa(mensagem.payload)
       .then(sendResponse)
       .catch((erro) => sendResponse({ ok: false, error: String(erro) }));
     return true;

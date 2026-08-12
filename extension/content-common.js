@@ -177,6 +177,24 @@ const PROSPECTS_EXT_CSS = `
   }
   .botao-flutuante-msg:hover { background: #1d4ed8; }
 
+  .botao-flutuante-arquivar {
+    position: fixed;
+    bottom: 150px;
+    right: 24px;
+    z-index: 2147483000;
+    background: #25d366;
+    color: #fff;
+    border: none;
+    border-radius: 999px;
+    padding: 12px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  }
+  .botao-flutuante-arquivar:hover { background: #1da851; }
+  .botao-flutuante-arquivar:disabled { opacity: 0.7; cursor: default; }
+
   .menu-mensagens {
     position: fixed;
     bottom: 122px;
@@ -362,6 +380,22 @@ function criarBotaoColarMensagem(onClick) {
   btn.textContent = "💬 Colar mensagem";
   btn.addEventListener("click", onClick);
   root.appendChild(btn);
+}
+
+// Retorna o próprio botão (diferente dos outros criadores acima) porque o
+// fluxo de arquivar conversa precisa atualizar o texto/estado do botão
+// durante o processamento assíncrono (carregando/extraindo/salvando).
+function criarBotaoArquivarConversa(onClick) {
+  const root = getProspectsExtRoot();
+  const existente = root.querySelector(".botao-flutuante-arquivar");
+  if (existente) return existente;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "botao-flutuante-arquivar";
+  btn.textContent = "🗂️ Arquivar conversa";
+  btn.addEventListener("click", onClick);
+  root.appendChild(btn);
+  return btn;
 }
 
 // Texto fica em msg.txt (não em JS) de propósito — é a mensagem de
