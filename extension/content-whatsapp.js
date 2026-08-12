@@ -489,8 +489,11 @@ criarBotaoFlutuante(async () => {
 // --- Arquivar conversa: captura o histórico completo da conversa aberta e
 // salva no prospect correspondente (ver salvarHistoricoConversaWhatsapp no
 // servidor). Reaproveita extrairContatoWhatsapp/extrairDadosViaPainel (achar
-// o telefone) e rolarAteInicioDaConversa (carregar o histórico todo) da
-// Função 3 acima, em vez de duplicar essa lógica. ---
+// o telefone) da Função 3 acima, em vez de duplicar essa lógica. Não
+// reaproveita rolarAteInicioDaConversa aqui porque aquela função só rola até
+// o topo e lê o DOM uma vez no final — serve pra pegar só a primeira
+// mensagem, mas perde as mensagens do meio/fim quando o objetivo é capturar
+// a conversa inteira (ver extrairHistoricoConversa abaixo). ---
 
 const TEXTO_BOTAO_ARQUIVAR_PADRAO = "🗂️ Arquivar conversa";
 
@@ -509,15 +512,17 @@ function mostrarStatusArquivar(botao, texto, { finalizar = false, atraso = 3000 
 // ativadas") — não é mensagem de conversa, então é ignorada. Mensagens de
 // texto trazem data completa via data-pre-plain-text (mesmo atributo usado em
 // extrairPrimeiraMensagemEnviada); mensagens de mídia sem esse atributo usam
-// a última data conhecida como aproximação, já que as linhas vêm em ordem
-// cronológica (mais antiga primeiro, depois de rolarAteInicioDaConversa).
-function extrairHistoricoConversa() {
+// a última data conhecida como aproximação (as linhas são varridas na ordem
+// em que aparecem no DOM, que é cronológica).
+//
+// Chave de deduplicação: data-pre-plain-text já identifica a mensagem de
+// forma praticamente única (tem hora exata + nome do remetente) quando
+// existe. Mensagens de mídia sem esse atributo caem no fallback
+// remetente+texto+data — pode colidir em mídias idênticas consecutivas sem
+// timestamp (caso raro); não há um id nativo de mensagem confirmado no DOM
+// deste projeto pra resolver isso com certeza.
+function coletarMensagensVisiveis(mapa, estado) {
   const linhas = document.querySelectorAll('#main [role="row"]');
-  console.log(`[Prospects] extrairHistoricoConversa: ${linhas.length} linhas [role="row"] encontradas`);
-
-  const mensagens = [];
-  let ultimaDataConhecida = null;
-
   linhas.forEach((linha) => {
     const enviada = !!linha.querySelector('[data-icon="tail-out"]');
     const recebida = !!linha.querySelector('[data-icon="tail-in"]');
@@ -529,18 +534,54 @@ function extrairHistoricoConversa() {
     const prePlainTextEl = linha.querySelector("[data-pre-plain-text]");
     const prePlainText = prePlainTextEl ? prePlainTextEl.getAttribute("data-pre-plain-text") : null;
     const dataHora = parseDataHoraPrePlainText(prePlainText);
-    if (dataHora) ultimaDataConhecida = dataHora;
+    if (dataHora) estado.ultimaDataConhecida = dataHora;
 
-    const dataHoraFinal = dataHora || ultimaDataConhecida;
+    const dataHoraFinal = dataHora || estado.ultimaDataConhecida;
+    const remetente = enviada ? "Agência" : "Lead";
+    const textoFinal = texto || "[mensagem sem texto]";
+    const dataHoraIso = dataHoraFinal ? dataHoraFinal.toISOString() : null;
 
-    mensagens.push({
-      remetente: enviada ? "Agência" : "Lead",
-      texto: texto || "[mensagem sem texto]",
-      data_hora: dataHoraFinal ? dataHoraFinal.toISOString() : null,
-    });
+    const chave = prePlainText || `${remetente}|${textoFinal}|${dataHoraIso || ""}`;
+    if (!mapa.has(chave)) {
+      mapa.set(chave, { remetente, texto: textoFinal, data_hora: dataHoraIso });
+    }
+  });
+}
+
+// O container de mensagens vem carregado só com o trecho perto da posição de
+// rolagem atual (virtualização do WhatsApp Web) — rolar direto pro topo e ler
+// o DOM uma única vez no final (como rolarAteInicioDaConversa faz para a
+// Função 3) perde as mensagens do meio/fim, que já saem do DOM assim que a
+// rolagem passa por elas. Por isso aqui coletamos a CADA passo da rolagem
+// (em incrementos de ~80% da altura visível) e mesclamos num Map, em vez de
+// coletar só uma vez ao chegar no topo.
+async function extrairHistoricoConversa() {
+  const container = document.querySelector('[data-testid="conversation-panel-messages"]');
+  const mapa = new Map();
+  const estado = { ultimaDataConhecida: null };
+
+  coletarMensagensVisiveis(mapa, estado);
+  console.log(`[Prospects] extrairHistoricoConversa: container de rolagem encontrado?`, !!container, "| coleta inicial:", mapa.size);
+
+  if (container) {
+    for (let tentativa = 0; tentativa < 60; tentativa++) {
+      const scrollTopAntes = container.scrollTop;
+      if (scrollTopAntes === 0) break;
+      container.scrollTop = Math.max(0, scrollTopAntes - container.clientHeight * 0.8);
+      await aguardar(250);
+      coletarMensagensVisiveis(mapa, estado);
+      console.log(`[Prospects] extrairHistoricoConversa: tentativa ${tentativa + 1}/60, scrollTop =`, container.scrollTop, "| total coletado =", mapa.size);
+    }
+  }
+
+  const mensagens = Array.from(mapa.values()).sort((a, b) => {
+    if (!a.data_hora && !b.data_hora) return 0;
+    if (!a.data_hora) return -1;
+    if (!b.data_hora) return 1;
+    return a.data_hora.localeCompare(b.data_hora);
   });
 
-  console.log(`[Prospects] extrairHistoricoConversa: ${mensagens.length} mensagens extraídas`);
+  console.log(`[Prospects] extrairHistoricoConversa: ${mensagens.length} mensagens extraídas no total`);
   return mensagens;
 }
 
@@ -554,10 +595,7 @@ const botaoArquivarConversa = criarBotaoArquivarConversa(async () => {
 
   botaoArquivarConversa.disabled = true;
   mostrarStatusArquivar(botaoArquivarConversa, "Carregando histórico...");
-  await rolarAteInicioDaConversa();
-
-  mostrarStatusArquivar(botaoArquivarConversa, "Extraindo...");
-  const mensagens = extrairHistoricoConversa();
+  const mensagens = await extrairHistoricoConversa();
 
   if (mensagens.length === 0) {
     mostrarStatusArquivar(botaoArquivarConversa, "⚠️ Conversa vazia — nada capturado", { finalizar: true, atraso: 4000 });

@@ -44,7 +44,7 @@ export default function HistoricoConversaModal({ prospect, onClose }: Props) {
             ✕
           </button>
         </div>
-        <div className="overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {prospect.historico_conversa_whatsapp ? (
             <pre className="whitespace-pre-wrap break-words font-sans text-sm text-neutral-700">
               {prospect.historico_conversa_whatsapp}
