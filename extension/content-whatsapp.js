@@ -489,11 +489,12 @@ criarBotaoFlutuante(async () => {
 // --- Arquivar conversa: captura o histórico completo da conversa aberta e
 // salva no prospect correspondente (ver salvarHistoricoConversaWhatsapp no
 // servidor). Reaproveita extrairContatoWhatsapp/extrairDadosViaPainel (achar
-// o telefone) da Função 3 acima, em vez de duplicar essa lógica. Não
-// reaproveita rolarAteInicioDaConversa aqui porque aquela função só rola até
-// o topo e lê o DOM uma vez no final — serve pra pegar só a primeira
-// mensagem, mas perde as mensagens do meio/fim quando o objetivo é capturar
-// a conversa inteira (ver extrairHistoricoConversa abaixo). ---
+// o telefone) e rolarAteInicioDaConversa (garantir que tudo foi carregado)
+// da Função 3 acima, em vez de duplicar essa lógica — mas, diferente da
+// Função 3, não basta rolar até o topo e ler o DOM uma vez: a lista é
+// virtualizada (só uma janela de mensagens fica montada por vez), então
+// depois de garantir que carregou tudo, ainda é preciso varrer a conversa
+// inteira coletando a cada passo (ver extrairHistoricoConversa abaixo). ---
 
 const TEXTO_BOTAO_ARQUIVAR_PADRAO = "🗂️ Arquivar conversa";
 
@@ -548,30 +549,65 @@ function coletarMensagensVisiveis(mapa, estado) {
   });
 }
 
-// O container de mensagens vem carregado só com o trecho perto da posição de
-// rolagem atual (virtualização do WhatsApp Web) — rolar direto pro topo e ler
-// o DOM uma única vez no final (como rolarAteInicioDaConversa faz para a
-// Função 3) perde as mensagens do meio/fim, que já saem do DOM assim que a
-// rolagem passa por elas. Por isso aqui coletamos a CADA passo da rolagem
-// (em incrementos de ~80% da altura visível) e mesclamos num Map, em vez de
-// coletar só uma vez ao chegar no topo.
+// O WhatsApp Web usa lista virtualizada de verdade: mesmo depois do histórico
+// inteiro estar CARREGADO (scrollHeight parado de crescer — ver
+// rolarAteInicioDaConversa), só uma janela de mensagens perto da posição
+// atual de rolagem fica MONTADA no DOM. Rolar em passos grandes pode pular
+// uma janela inteira entre duas coletas sem nunca montar aquele trecho. Passo
+// pequeno (40% da altura visível) garante sobreposição entre coletas
+// consecutivas, pra nenhuma janela ficar de fora.
+async function varrerColetando(container, mapa, estado, direcao) {
+  const DISTANCIA_FRACAO = 0.4;
+  const ESPERA_MS = 300;
+  const MAX_PASSOS = 200;
+
+  for (let tentativa = 0; tentativa < MAX_PASSOS; tentativa++) {
+    const scrollTopAntes = container.scrollTop;
+
+    if (direcao === "baixo") {
+      const maximo = container.scrollHeight - container.clientHeight;
+      if (scrollTopAntes >= maximo - 1) break;
+      container.scrollTop = Math.min(maximo, scrollTopAntes + container.clientHeight * DISTANCIA_FRACAO);
+    } else {
+      if (scrollTopAntes <= 0) break;
+      container.scrollTop = Math.max(0, scrollTopAntes - container.clientHeight * DISTANCIA_FRACAO);
+    }
+
+    await aguardar(ESPERA_MS);
+    coletarMensagensVisiveis(mapa, estado);
+    console.log(
+      `[Prospects] extrairHistoricoConversa: varredura ${direcao}, passo ${tentativa + 1}/${MAX_PASSOS}, scrollTop =`,
+      container.scrollTop,
+      "| total coletado =",
+      mapa.size,
+    );
+  }
+}
+
+// 1) rolarAteInicioDaConversa (já validada na Função 3) garante que TODO o
+//    histórico foi buscado do servidor/IndexedDB, não só o que já está
+//    visível — repete "voltar pro topo" até scrollHeight parar de crescer.
+// 2) Só depois disso faz sentido varrer com varrerColetando: a varredura
+//    resolve o problema de RENDERIZAÇÃO (janela virtualizada), não o de
+//    CARREGAMENTO — se ainda faltasse buscar mensagens antigas do servidor,
+//    varrer não adiantaria, porque elas nem existiriam no DOM em nenhum
+//    ponto da rolagem.
 async function extrairHistoricoConversa() {
   const container = document.querySelector('[data-testid="conversation-panel-messages"]');
-  const mapa = new Map();
-  const estado = { ultimaDataConhecida: null };
-
-  coletarMensagensVisiveis(mapa, estado);
-  console.log(`[Prospects] extrairHistoricoConversa: container de rolagem encontrado?`, !!container, "| coleta inicial:", mapa.size);
+  console.log("[Prospects] extrairHistoricoConversa: container de rolagem encontrado?", !!container);
 
   if (container) {
-    for (let tentativa = 0; tentativa < 60; tentativa++) {
-      const scrollTopAntes = container.scrollTop;
-      if (scrollTopAntes === 0) break;
-      container.scrollTop = Math.max(0, scrollTopAntes - container.clientHeight * 0.8);
-      await aguardar(250);
-      coletarMensagensVisiveis(mapa, estado);
-      console.log(`[Prospects] extrairHistoricoConversa: tentativa ${tentativa + 1}/60, scrollTop =`, container.scrollTop, "| total coletado =", mapa.size);
-    }
+    console.log("[Prospects] extrairHistoricoConversa: garantindo que todo o histórico foi carregado...");
+    await rolarAteInicioDaConversa();
+  }
+
+  const mapa = new Map();
+  const estado = { ultimaDataConhecida: null };
+  coletarMensagensVisiveis(mapa, estado);
+  console.log("[Prospects] extrairHistoricoConversa: coleta inicial (no topo) =", mapa.size);
+
+  if (container) {
+    await varrerColetando(container, mapa, estado, "baixo");
   }
 
   const mensagens = Array.from(mapa.values()).sort((a, b) => {
