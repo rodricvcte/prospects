@@ -22,6 +22,41 @@ function formatarDataHora(iso: string): string {
   });
 }
 
+// Aspas em volta de todo campo + escapar aspas internas dobrando-as: cobre
+// vírgula, quebra de linha e aspas dentro do texto (histórico de conversa
+// tem os três com frequência) sem precisar de biblioteca nenhuma.
+function escaparCsv(valor: string): string {
+  return `"${valor.replace(/"/g, '""')}"`;
+}
+
+function exportarHistoricoCsv(prospects: Prospect[]) {
+  const cabecalho = ["Nome", "Telefone/Usuário", "Canal", "Capturado em", "Histórico de Mensagens"];
+  const linhas = prospects.map((p) =>
+    [
+      p.nome_prospect || "",
+      p.conta_destino,
+      CANAL_LABEL[p.canal],
+      p.historico_capturado_em ? formatarDataHora(p.historico_capturado_em) : "",
+      p.historico_conversa_whatsapp || "",
+    ]
+      .map(escaparCsv)
+      .join(","),
+  );
+  // BOM (﻿) no início: sem ele o Excel detecta o arquivo como
+  // ANSI/Latin-1 por padrão e acentos/emojis viram caracteres quebrados.
+  const conteudo = "﻿" + [cabecalho.map(escaparCsv).join(","), ...linhas].join("\r\n");
+
+  const blob = new Blob([conteudo], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `prospects-historico-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 function linkContato(p: Prospect): string | null {
   if (p.canal === "instagram") {
     const handle = p.conta_destino.trim().replace(/^@/, "");
@@ -166,6 +201,14 @@ export default function KanbanProspects() {
           </p>
         </div>
         <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => exportarHistoricoCsv(prospects)}
+            disabled={loading || prospects.length === 0}
+            className="rounded-md border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:cursor-default disabled:opacity-50"
+          >
+            Exportar histórico (Excel)
+          </button>
           <Link
             href="/painel-gdigy14knc/clientes"
             className="rounded-md border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
