@@ -508,45 +508,106 @@ function mostrarStatusArquivar(botao, texto, { finalizar = false, atraso = 3000 
   }
 }
 
-// Cada linha [role="row"] sem ícone de cauda (nem "tail-out" nem "tail-in") é
-// separador de dia ou mensagem de sistema (ex: "Mensagens temporárias
-// ativadas") — não é mensagem de conversa, então é ignorada. Mensagens de
-// texto trazem data completa via data-pre-plain-text (mesmo atributo usado em
-// extrairPrimeiraMensagemEnviada); mensagens de mídia sem esse atributo usam
-// a última data conhecida como aproximação (as linhas são varridas na ordem
-// em que aparecem no DOM, que é cronológica).
-//
-// Chave de deduplicação: data-pre-plain-text já identifica a mensagem de
-// forma praticamente única (tem hora exata + nome do remetente) quando
-// existe. Mensagens de mídia sem esse atributo caem no fallback
-// remetente+texto+data — pode colidir em mídias idênticas consecutivas sem
-// timestamp (caso raro); não há um id nativo de mensagem confirmado no DOM
-// deste projeto pra resolver isso com certeza.
-function coletarMensagensVisiveis(mapa, estado) {
-  const linhas = document.querySelectorAll('#main [role="row"]');
-  linhas.forEach((linha) => {
+// Descoberta comparando a captura com o texto real copiado do WhatsApp: o
+// WhatsApp Web agrupa várias mensagens CONSECUTIVAS do mesmo remetente
+// dentro da MESMA linha [role="row"] (só a última bolha do grupo mostra o
+// ícone de cauda) — um querySelector(".selectable-text") escopado na row
+// (singular) só pegava a PRIMEIRA bolha de cada grupo, descartando o resto
+// em silêncio. Por isso não usamos mais [role="row"] pra extrair o TEXTO das
+// mensagens: cada mensagem de texto individual — mesmo agrupada — tem seu
+// próprio elemento [data-pre-plain-text] no formato
+// "[HH:MM, DD/MM/YYYY] Nome: ", então varrer esse seletor direto na página
+// (sem passar pela row) dá uma leitura por mensagem de verdade, já com nome
+// e hora exatos, não importa como o WhatsApp agrupou as bolhas visualmente.
+function extrairNomeDoPrePlainText(prePlainText) {
+  const match = prePlainText && prePlainText.match(/^\[\d{1,2}:\d{2}, \d{1,2}\/\d{1,2}\/\d{4}\] (.+): $/);
+  return match ? match[1] : null;
+}
+
+// Uma conversa 1:1 só tem dois remetentes possíveis. Descobrimos qual Nome
+// corresponde a "Agência" (mensagem enviada, tem tail-out) e qual a "Lead"
+// (recebida, tail-in) varrendo as linhas que ainda têm o ícone de cauda —
+// mesmo pegando só a última bolha de cada grupo, isso já basta pra mapear o
+// Nome pro remetente certo, porque o Nome é o mesmo em todas as bolhas do
+// grupo. Esse mapa depois resolve o remetente de QUALQUER mensagem
+// individual encontrada via [data-pre-plain-text], grupada ou não.
+// Mescla no mapa existente (não recria do zero) porque nomes novos podem
+// aparecer só depois de rolar mais — chamado a cada passo da varredura,
+// nunca esquece um nome já resolvido antes mesmo que a row original saia do
+// DOM de novo.
+function atualizarMapaRemetentePorNome(mapaRemetentePorNome) {
+  document.querySelectorAll('#main [role="row"]').forEach((linha) => {
     const enviada = !!linha.querySelector('[data-icon="tail-out"]');
     const recebida = !!linha.querySelector('[data-icon="tail-in"]');
     if (!enviada && !recebida) return;
-
-    const textoEl = linha.querySelector(".selectable-text");
-    const texto = textoEl ? extrairTextoComEmojis(textoEl).trim() : "";
-
-    const prePlainTextEl = linha.querySelector("[data-pre-plain-text]");
-    const prePlainText = prePlainTextEl ? prePlainTextEl.getAttribute("data-pre-plain-text") : null;
-    const dataHora = parseDataHoraPrePlainText(prePlainText);
-    if (dataHora) estado.ultimaDataConhecida = dataHora;
-
-    const dataHoraFinal = dataHora || estado.ultimaDataConhecida;
-    const remetente = enviada ? "Agência" : "Lead";
-    const textoFinal = texto || "[mensagem sem texto]";
-    const dataHoraIso = dataHoraFinal ? dataHoraFinal.toISOString() : null;
-
-    const chave = prePlainText || `${remetente}|${textoFinal}|${dataHoraIso || ""}`;
-    if (!mapa.has(chave)) {
-      mapa.set(chave, { remetente, texto: textoFinal, data_hora: dataHoraIso });
+    const prePlainTextEl = linha.querySelector('[data-pre-plain-text]');
+    const prePlainText = prePlainTextEl ? prePlainTextEl.getAttribute('data-pre-plain-text') : null;
+    const nome = extrairNomeDoPrePlainText(prePlainText);
+    if (nome && !mapaRemetentePorNome.has(nome)) {
+      mapaRemetentePorNome.set(nome, enviada ? "Agência" : "Lead");
     }
   });
+}
+
+function resolverRemetente(nome, mapaRemetentePorNome, contatoNome) {
+  const doMapa = nome ? mapaRemetentePorNome.get(nome) : undefined;
+  if (doMapa) return doMapa;
+  if (nome && contatoNome && nome.trim().toLowerCase() === contatoNome.trim().toLowerCase()) return "Lead";
+  return "Agência";
+}
+
+// Passo 1: mensagens de TEXTO — uma leitura por [data-pre-plain-text] direto
+// na página (ver comentário acima), não por row.
+function coletarMensagensDeTexto(mapa, estado, mapaRemetentePorNome, contatoNome) {
+  document.querySelectorAll('[data-pre-plain-text]').forEach((el) => {
+    const prePlainText = el.getAttribute('data-pre-plain-text');
+    const dataHora = parseDataHoraPrePlainText(prePlainText);
+    const nome = extrairNomeDoPrePlainText(prePlainText);
+    if (!dataHora || !nome) return;
+
+    const textoEl = el.querySelector('.selectable-text') || (el.classList.contains('selectable-text') ? el : null);
+    const texto = textoEl ? extrairTextoComEmojis(textoEl).trim() : "";
+    if (!texto) return;
+
+    estado.ultimaDataConhecida = dataHora;
+    const remetente = resolverRemetente(nome, mapaRemetentePorNome, contatoNome);
+
+    if (!mapa.has(prePlainText)) {
+      mapa.set(prePlainText, { remetente, texto, data_hora: dataHora.toISOString() });
+    }
+  });
+}
+
+// Passo 2: mensagens de MÍDIA sem legenda — não têm data-pre-plain-text, só
+// dá pra achar via a própria row com ícone de cauda. Só entra aqui quando a
+// row não tem NENHUM [data-pre-plain-text] dentro (senão já foi coberta pelo
+// passo 1, mensagem de texto de verdade). Usa a última data conhecida como
+// aproximação. Chave de dedup SEM contador/índice de propósito: um índice
+// que muda a cada nova chamada (a varredura re-coleta a mesma mídia a cada
+// passo de rolagem) faria a MESMA mídia entrar várias vezes como linhas
+// diferentes — pior que o problema oposto. O trade-off aceito aqui é
+// subcontar (duas mídias sem legenda do mesmo remetente no mesmo minuto
+// colapsam numa só) em vez de duplicar.
+function coletarMensagensDeMidia(mapa, estado) {
+  document.querySelectorAll('#main [role="row"]').forEach((linha) => {
+    const enviada = !!linha.querySelector('[data-icon="tail-out"]');
+    const recebida = !!linha.querySelector('[data-icon="tail-in"]');
+    if (!enviada && !recebida) return;
+    if (linha.querySelector('[data-pre-plain-text]')) return;
+
+    const remetente = enviada ? "Agência" : "Lead";
+    const dataHoraIso = estado.ultimaDataConhecida ? estado.ultimaDataConhecida.toISOString() : null;
+    const chave = `midia|${remetente}|${dataHoraIso || ""}`;
+    if (!mapa.has(chave)) {
+      mapa.set(chave, { remetente, texto: "[mensagem sem texto]", data_hora: dataHoraIso });
+    }
+  });
+}
+
+function coletarMensagensVisiveis(mapa, estado, mapaRemetentePorNome, contatoNome) {
+  atualizarMapaRemetentePorNome(mapaRemetentePorNome);
+  coletarMensagensDeTexto(mapa, estado, mapaRemetentePorNome, contatoNome);
+  coletarMensagensDeMidia(mapa, estado);
 }
 
 // Espera baseada em MutationObserver, não em setTimeout fixo: um atraso fixo
@@ -590,7 +651,7 @@ function esperarDomEstabilizar(container, { tempoSilencioMs = 200, timeoutMaxMs 
 // pequeno (25% da altura visível) garante boa sobreposição entre coletas
 // consecutivas, e a coleta só acontece depois do DOM estabilizar (ver
 // esperarDomEstabilizar acima) — não depois de um tempo fixo arbitrário.
-async function varrerColetando(container, mapa, estado, direcao) {
+async function varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, direcao) {
   const DISTANCIA_FRACAO = 0.25;
   const MAX_PASSOS = 400;
 
@@ -607,7 +668,7 @@ async function varrerColetando(container, mapa, estado, direcao) {
     }
 
     await esperarDomEstabilizar(container);
-    coletarMensagensVisiveis(mapa, estado);
+    coletarMensagensVisiveis(mapa, estado, mapaRemetentePorNome, contatoNome);
     console.log(
       `[Prospects] extrairHistoricoConversa: varredura ${direcao}, passo ${tentativa + 1}/${MAX_PASSOS}, scrollTop =`,
       container.scrollTop,
@@ -625,7 +686,7 @@ async function varrerColetando(container, mapa, estado, direcao) {
 //    CARREGAMENTO — se ainda faltasse buscar mensagens antigas do servidor,
 //    varrer não adiantaria, porque elas nem existiriam no DOM em nenhum
 //    ponto da rolagem.
-async function extrairHistoricoConversa() {
+async function extrairHistoricoConversa(contatoNome) {
   const container = document.querySelector('[data-testid="conversation-panel-messages"]');
   console.log("[Prospects] extrairHistoricoConversa: container de rolagem encontrado?", !!container);
 
@@ -636,16 +697,22 @@ async function extrairHistoricoConversa() {
 
   const mapa = new Map();
   const estado = { ultimaDataConhecida: null };
-  coletarMensagensVisiveis(mapa, estado);
-  console.log("[Prospects] extrairHistoricoConversa: coleta inicial (no topo) =", mapa.size);
+  const mapaRemetentePorNome = new Map();
+  coletarMensagensVisiveis(mapa, estado, mapaRemetentePorNome, contatoNome);
+  console.log(
+    "[Prospects] extrairHistoricoConversa: coleta inicial (no topo) =",
+    mapa.size,
+    "| nomes mapeados =",
+    Array.from(mapaRemetentePorNome.entries()),
+  );
 
   if (container) {
-    await varrerColetando(container, mapa, estado, "baixo");
+    await varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, "baixo");
     // Segunda passada, de volta pro topo: a primeira (com o container
     // partindo do topo) cobre a conversa inteira, mas uma passada na direção
     // oposta serve de rede de segurança pra qualquer trecho que a janela
     // virtualizada tenha deixado passar rápido demais na primeira.
-    await varrerColetando(container, mapa, estado, "cima");
+    await varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, "cima");
   }
 
   const mensagens = Array.from(mapa.values()).sort((a, b) => {
@@ -667,16 +734,17 @@ const botaoArquivarConversa = criarBotaoArquivarConversa(async () => {
     return;
   }
 
+  const contato = extrairContatoWhatsapp(header);
+
   botaoArquivarConversa.disabled = true;
   mostrarStatusArquivar(botaoArquivarConversa, "Carregando histórico...");
-  const mensagens = await extrairHistoricoConversa();
+  const mensagens = await extrairHistoricoConversa(contato.nome);
 
   if (mensagens.length === 0) {
     mostrarStatusArquivar(botaoArquivarConversa, "⚠️ Conversa vazia — nada capturado", { finalizar: true, atraso: 4000 });
     return;
   }
 
-  const contato = extrairContatoWhatsapp(header);
   let numero = contato.numero;
   if (!numero) {
     console.log("[Prospects] extrairHistoricoConversa: sem número no cabeçalho, tentando painel de Dados do contato...");
