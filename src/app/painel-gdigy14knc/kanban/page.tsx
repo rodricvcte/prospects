@@ -47,6 +47,35 @@ function CanalBadge({ canal }: { canal: Canal }) {
   );
 }
 
+// Zera as horas antes de subtrair pra contar em "dias de calendário", não em
+// blocos de 24h — approach feito ontem às 23h já conta como "1 dia", não "0".
+function diasDesdePrimeiroContato(dataHrApproach: string): number {
+  const inicio = new Date(dataHrApproach);
+  inicio.setHours(0, 0, 0, 0);
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  return Math.round((hoje.getTime() - inicio.getTime()) / 86_400_000);
+}
+
+function DiasContatoBadge({ dataHrApproach }: { dataHrApproach: string }) {
+  const dias = diasDesdePrimeiroContato(dataHrApproach);
+  const texto = dias <= 0 ? "hoje" : dias === 1 ? "1 dia" : `${dias} dias`;
+  const estilos =
+    dias >= 30
+      ? "bg-red-50 text-red-700 ring-red-600/20"
+      : dias >= 7
+        ? "bg-amber-50 text-amber-700 ring-amber-600/20"
+        : "bg-neutral-50 text-neutral-500 ring-neutral-500/20";
+  return (
+    <span
+      className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${estilos}`}
+      title="Dias desde o primeiro contato"
+    >
+      {texto}
+    </span>
+  );
+}
+
 export default function KanbanProspects() {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [loading, setLoading] = useState(true);
@@ -235,6 +264,7 @@ export default function KanbanProspects() {
                       </div>
                       <div className="mb-1.5 flex items-center gap-1.5">
                         <CanalBadge canal={p.canal} />
+                        <DiasContatoBadge dataHrApproach={p.data_hr_approach} />
                         {p.regiao && <span className="truncate text-xs text-neutral-500">{p.regiao}</span>}
                         {p.historico_conversa_whatsapp && (
                           <button
