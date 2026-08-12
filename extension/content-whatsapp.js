@@ -646,14 +646,16 @@ function esperarDomEstabilizar(container, { tempoSilencioMs = 200, timeoutMaxMs 
 // O WhatsApp Web usa lista virtualizada de verdade: mesmo depois do histórico
 // inteiro estar CARREGADO (scrollHeight parado de crescer — ver
 // rolarAteInicioDaConversa), só uma janela de mensagens perto da posição
-// atual de rolagem fica MONTADA no DOM. Rolar em passos grandes pode pular
-// uma janela inteira entre duas coletas sem nunca montar aquele trecho. Passo
-// pequeno (25% da altura visível) garante boa sobreposição entre coletas
-// consecutivas, e a coleta só acontece depois do DOM estabilizar (ver
-// esperarDomEstabilizar acima) — não depois de um tempo fixo arbitrário.
-async function varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, direcao) {
-  const DISTANCIA_FRACAO = 0.25;
-  const MAX_PASSOS = 400;
+// atual de rolagem fica MONTADA no DOM. Um passo em FRAÇÃO da altura visível
+// (ex: 25% da tela) ainda pode pular um cluster inteiro de mensagens curtas
+// de uma vez — mensagens de uma linha só ocupam pouquíssima altura, então um
+// grupo de 5-6 delas pode caber num espaço bem menor que 25% da tela e nunca
+// ficar "entre" dois pontos de coleta consecutivos. Por isso o passo aqui é
+// em PIXELS fixos e pequeno, não em fração da tela — garante granularidade
+// suficiente independente de quão compacto o conteúdo esteja.
+async function varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, direcao, onProgresso) {
+  const DISTANCIA_PX = 60;
+  const MAX_PASSOS = 3000;
 
   for (let tentativa = 0; tentativa < MAX_PASSOS; tentativa++) {
     const scrollTopAntes = container.scrollTop;
@@ -661,20 +663,23 @@ async function varrerColetando(container, mapa, estado, mapaRemetentePorNome, co
     if (direcao === "baixo") {
       const maximo = container.scrollHeight - container.clientHeight;
       if (scrollTopAntes >= maximo - 1) break;
-      container.scrollTop = Math.min(maximo, scrollTopAntes + container.clientHeight * DISTANCIA_FRACAO);
+      container.scrollTop = Math.min(maximo, scrollTopAntes + DISTANCIA_PX);
     } else {
       if (scrollTopAntes <= 0) break;
-      container.scrollTop = Math.max(0, scrollTopAntes - container.clientHeight * DISTANCIA_FRACAO);
+      container.scrollTop = Math.max(0, scrollTopAntes - DISTANCIA_PX);
     }
 
     await esperarDomEstabilizar(container);
     coletarMensagensVisiveis(mapa, estado, mapaRemetentePorNome, contatoNome);
-    console.log(
-      `[Prospects] extrairHistoricoConversa: varredura ${direcao}, passo ${tentativa + 1}/${MAX_PASSOS}, scrollTop =`,
-      container.scrollTop,
-      "| total coletado =",
-      mapa.size,
-    );
+    if (tentativa % 10 === 0) {
+      console.log(
+        `[Prospects] extrairHistoricoConversa: varredura ${direcao}, passo ${tentativa + 1}/${MAX_PASSOS}, scrollTop =`,
+        container.scrollTop,
+        "| total coletado =",
+        mapa.size,
+      );
+      if (onProgresso) onProgresso(mapa.size);
+    }
   }
 }
 
@@ -686,7 +691,7 @@ async function varrerColetando(container, mapa, estado, mapaRemetentePorNome, co
 //    CARREGAMENTO — se ainda faltasse buscar mensagens antigas do servidor,
 //    varrer não adiantaria, porque elas nem existiriam no DOM em nenhum
 //    ponto da rolagem.
-async function extrairHistoricoConversa(contatoNome) {
+async function extrairHistoricoConversa(contatoNome, onProgresso) {
   const container = document.querySelector('[data-testid="conversation-panel-messages"]');
   console.log("[Prospects] extrairHistoricoConversa: container de rolagem encontrado?", !!container);
 
@@ -707,12 +712,12 @@ async function extrairHistoricoConversa(contatoNome) {
   );
 
   if (container) {
-    await varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, "baixo");
+    await varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, "baixo", onProgresso);
     // Segunda passada, de volta pro topo: a primeira (com o container
     // partindo do topo) cobre a conversa inteira, mas uma passada na direção
     // oposta serve de rede de segurança pra qualquer trecho que a janela
     // virtualizada tenha deixado passar rápido demais na primeira.
-    await varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, "cima");
+    await varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, "cima", onProgresso);
   }
 
   const mensagens = Array.from(mapa.values()).sort((a, b) => {
@@ -738,7 +743,9 @@ const botaoArquivarConversa = criarBotaoArquivarConversa(async () => {
 
   botaoArquivarConversa.disabled = true;
   mostrarStatusArquivar(botaoArquivarConversa, "Carregando histórico...");
-  const mensagens = await extrairHistoricoConversa(contato.nome);
+  const mensagens = await extrairHistoricoConversa(contato.nome, (total) => {
+    mostrarStatusArquivar(botaoArquivarConversa, `Carregando histórico... (${total})`);
+  });
 
   if (mensagens.length === 0) {
     mostrarStatusArquivar(botaoArquivarConversa, "⚠️ Conversa vazia — nada capturado", { finalizar: true, atraso: 4000 });
