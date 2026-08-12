@@ -549,17 +549,50 @@ function coletarMensagensVisiveis(mapa, estado) {
   });
 }
 
+// Espera baseada em MutationObserver, não em setTimeout fixo: um atraso fixo
+// (ex: 300ms) ou funciona rápido demais em máquinas lentas / listas grandes
+// (a virtualização ainda não terminou de montar as linhas novas quando a
+// gente já foi ler o DOM — mensagens "pulam") ou é lento demais à toa quando
+// o render já tinha terminado bem antes. Aqui espera o container realmente
+// parar de sofrer mutação (nenhum childList novo por TEMPO_SILENCIO_MS
+// seguidos) antes de liberar a coleta, com um teto de TIMEOUT_MAX_MS pra não
+// travar pra sempre se, por algum motivo, o DOM ficar mudando sem parar.
+function esperarDomEstabilizar(container, { tempoSilencioMs = 200, timeoutMaxMs = 2500 } = {}) {
+  return new Promise((resolve) => {
+    let resolvido = false;
+    let timeoutSilencio;
+
+    const finalizar = () => {
+      if (resolvido) return;
+      resolvido = true;
+      clearTimeout(timeoutSilencio);
+      clearTimeout(timeoutTotal);
+      observer.disconnect();
+      resolve();
+    };
+
+    const observer = new MutationObserver(() => {
+      clearTimeout(timeoutSilencio);
+      timeoutSilencio = setTimeout(finalizar, tempoSilencioMs);
+    });
+
+    observer.observe(container, { childList: true, subtree: true });
+    timeoutSilencio = setTimeout(finalizar, tempoSilencioMs);
+    const timeoutTotal = setTimeout(finalizar, timeoutMaxMs);
+  });
+}
+
 // O WhatsApp Web usa lista virtualizada de verdade: mesmo depois do histórico
 // inteiro estar CARREGADO (scrollHeight parado de crescer — ver
 // rolarAteInicioDaConversa), só uma janela de mensagens perto da posição
 // atual de rolagem fica MONTADA no DOM. Rolar em passos grandes pode pular
 // uma janela inteira entre duas coletas sem nunca montar aquele trecho. Passo
-// pequeno (40% da altura visível) garante sobreposição entre coletas
-// consecutivas, pra nenhuma janela ficar de fora.
+// pequeno (25% da altura visível) garante boa sobreposição entre coletas
+// consecutivas, e a coleta só acontece depois do DOM estabilizar (ver
+// esperarDomEstabilizar acima) — não depois de um tempo fixo arbitrário.
 async function varrerColetando(container, mapa, estado, direcao) {
-  const DISTANCIA_FRACAO = 0.4;
-  const ESPERA_MS = 300;
-  const MAX_PASSOS = 200;
+  const DISTANCIA_FRACAO = 0.25;
+  const MAX_PASSOS = 400;
 
   for (let tentativa = 0; tentativa < MAX_PASSOS; tentativa++) {
     const scrollTopAntes = container.scrollTop;
@@ -573,7 +606,7 @@ async function varrerColetando(container, mapa, estado, direcao) {
       container.scrollTop = Math.max(0, scrollTopAntes - container.clientHeight * DISTANCIA_FRACAO);
     }
 
-    await aguardar(ESPERA_MS);
+    await esperarDomEstabilizar(container);
     coletarMensagensVisiveis(mapa, estado);
     console.log(
       `[Prospects] extrairHistoricoConversa: varredura ${direcao}, passo ${tentativa + 1}/${MAX_PASSOS}, scrollTop =`,
@@ -608,6 +641,11 @@ async function extrairHistoricoConversa() {
 
   if (container) {
     await varrerColetando(container, mapa, estado, "baixo");
+    // Segunda passada, de volta pro topo: a primeira (com o container
+    // partindo do topo) cobre a conversa inteira, mas uma passada na direção
+    // oposta serve de rede de segurança pra qualquer trecho que a janela
+    // virtualizada tenha deixado passar rápido demais na primeira.
+    await varrerColetando(container, mapa, estado, "cima");
   }
 
   const mensagens = Array.from(mapa.values()).sort((a, b) => {
