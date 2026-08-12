@@ -558,6 +558,16 @@ function resolverRemetente(nome, mapaRemetentePorNome, contatoNome) {
 
 // Passo 1: mensagens de TEXTO — uma leitura por [data-pre-plain-text] direto
 // na página (ver comentário acima), não por row.
+//
+// Chave de dedup = prePlainText + texto, NÃO só prePlainText: confirmado no
+// DOM real que data-pre-plain-text só tem granularidade de MINUTO
+// ("[HH:MM, DD/MM/YYYY] Nome: "), sem id de mensagem. Duas ou mais mensagens
+// do mesmo remetente no mesmo minuto (comum em sequências rápidas de texto)
+// geram o MESMO valor de data-pre-plain-text — usar só isso como chave fazia
+// a 2ª/3ª mensagem do minuto ser tratada como "duplicata" da 1ª e descartada
+// em silêncio. Incluir o texto na chave resolve isso; só colide de verdade
+// se o mesmo remetente mandar o EXATO mesmo texto duas vezes no mesmo
+// minuto (edge case raro, aceitável).
 function coletarMensagensDeTexto(mapa, estado, mapaRemetentePorNome, contatoNome) {
   document.querySelectorAll('[data-pre-plain-text]').forEach((el) => {
     const prePlainText = el.getAttribute('data-pre-plain-text');
@@ -572,8 +582,9 @@ function coletarMensagensDeTexto(mapa, estado, mapaRemetentePorNome, contatoNome
     estado.ultimaDataConhecida = dataHora;
     const remetente = resolverRemetente(nome, mapaRemetentePorNome, contatoNome);
 
-    if (!mapa.has(prePlainText)) {
-      mapa.set(prePlainText, { remetente, texto, data_hora: dataHora.toISOString() });
+    const chave = `${prePlainText}||${texto}`;
+    if (!mapa.has(chave)) {
+      mapa.set(chave, { remetente, texto, data_hora: dataHora.toISOString() });
     }
   });
 }
