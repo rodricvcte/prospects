@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Canal, Prospect } from "@/lib/prospects";
 import { ESTAGIOS_KANBAN, type Estagio } from "@/lib/estagio";
 import DetalhesProspectPainel from "@/components/DetalhesProspectPainel";
+import HistoricoConversaModal from "@/components/HistoricoConversaModal";
 
 const CANAL_LABEL: Record<Canal, string> = {
   instagram: "Instagram",
@@ -52,6 +53,7 @@ export default function KanbanProspects() {
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState<string | null>(null);
   const [selecionado, setSelecionado] = useState<Prospect | null>(null);
+  const [historicoAberto, setHistoricoAberto] = useState<Prospect | null>(null);
   const [arrastandoId, setArrastandoId] = useState<string | null>(null);
   const [colunaEmHover, setColunaEmHover] = useState<Estagio | null>(null);
   const [prospectsConvertidos, setProspectsConvertidos] = useState<Set<string>>(new Set());
@@ -234,6 +236,19 @@ export default function KanbanProspects() {
                       <div className="mb-1.5 flex items-center gap-1.5">
                         <CanalBadge canal={p.canal} />
                         {p.regiao && <span className="truncate text-xs text-neutral-500">{p.regiao}</span>}
+                        {p.historico_conversa_whatsapp && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setHistoricoAberto(p);
+                            }}
+                            title="Ver histórico da conversa"
+                            className="ml-auto shrink-0 text-neutral-400 hover:text-emerald-600"
+                          >
+                            💬
+                          </button>
+                        )}
                       </div>
                       {linkContato(p) && (
                         <a
@@ -276,6 +291,10 @@ export default function KanbanProspects() {
             setSucesso(`${cliente.nome_completo} convertido em cliente com sucesso!`);
           }}
         />
+      )}
+
+      {historicoAberto && (
+        <HistoricoConversaModal prospect={historicoAberto} onClose={() => setHistoricoAberto(null)} />
       )}
     </div>
   );
