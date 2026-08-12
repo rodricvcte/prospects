@@ -281,15 +281,25 @@ export interface MensagemConversa {
   data_hora: string | null;
 }
 
+// Intl.DateTimeFormat com timeZone explícito, não Date.getHours()/getDate():
+// o servidor (Vercel) roda em UTC, então os métodos locais formatavam no
+// fuso do servidor, não em horário de São Paulo — mensagem capturada às
+// 08:32 (SP) ficava salva como "11:32".
 function formatarDataHoraLinha(iso: string | null): string {
   if (!iso) return "(data não identificada)";
   const data = new Date(iso);
   if (Number.isNaN(data.getTime())) return "(data não identificada)";
-  const dia = String(data.getDate()).padStart(2, "0");
-  const mes = String(data.getMonth() + 1).padStart(2, "0");
-  const hora = String(data.getHours()).padStart(2, "0");
-  const minuto = String(data.getMinutes()).padStart(2, "0");
-  return `${dia}/${mes}/${data.getFullYear()} ${hora}:${minuto}`;
+  const partes = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(data);
+  const obter = (tipo: string) => partes.find((p) => p.type === tipo)?.value ?? "";
+  return `${obter("day")}/${obter("month")}/${obter("year")} ${obter("hour")}:${obter("minute")}`;
 }
 
 // Sobrescreve o histórico por completo em vez de fazer append/merge: como a

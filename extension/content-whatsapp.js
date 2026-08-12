@@ -568,7 +568,7 @@ function resolverRemetente(nome, mapaRemetentePorNome, contatoNome) {
 // em silêncio. Incluir o texto na chave resolve isso; só colide de verdade
 // se o mesmo remetente mandar o EXATO mesmo texto duas vezes no mesmo
 // minuto (edge case raro, aceitável).
-function coletarMensagensDeTexto(mapa, estado, mapaRemetentePorNome, contatoNome) {
+function coletarMensagensDeTexto(mapa, mapaRemetentePorNome, contatoNome) {
   document.querySelectorAll('[data-pre-plain-text]').forEach((el) => {
     const prePlainText = el.getAttribute('data-pre-plain-text');
     const dataHora = parseDataHoraPrePlainText(prePlainText);
@@ -579,7 +579,6 @@ function coletarMensagensDeTexto(mapa, estado, mapaRemetentePorNome, contatoNome
     const texto = textoEl ? extrairTextoComEmojis(textoEl).trim() : "";
     if (!texto) return;
 
-    estado.ultimaDataConhecida = dataHora;
     const remetente = resolverRemetente(nome, mapaRemetentePorNome, contatoNome);
 
     const chave = `${prePlainText}||${texto}`;
@@ -613,25 +612,54 @@ function detectarTipoMidia(linha) {
   return "[mensagem sem texto]";
 }
 
+// Acha a data/hora do texto mais próximo ANTES da linha de mídia na ordem
+// real do documento (compareDocumentPosition), não "a última data vista até
+// agora" num estado mutável compartilhado — essa era a causa de um GIF do
+// COMEÇO da conversa herdar a data do texto mais recente da tela inteira: a
+// varredura de mídia rodava numa passada separada, depois da de texto (que
+// já tinha processado a página inteira e deixado o estado apontando pro
+// último texto do documento, não pro texto mais próximo daquele GIF
+// especificamente). `prePlainTextElementos` já vem em ordem de documento
+// (retorno de querySelectorAll), então basta achar onde a linha de mídia
+// se encaixa nessa ordem.
+function encontrarDataMaisProximaAntes(linha, prePlainTextElementos) {
+  let ultima = null;
+  for (const el of prePlainTextElementos) {
+    const posicao = linha.compareDocumentPosition(el);
+    if (posicao & Node.DOCUMENT_POSITION_FOLLOWING) {
+      // el vem DEPOIS da linha de mídia — já passamos do ponto, para aqui
+      // (a lista está em ordem, então nenhum candidato válido resta).
+      break;
+    }
+    const dataHora = parseDataHoraPrePlainText(el.getAttribute('data-pre-plain-text'));
+    if (dataHora) ultima = dataHora;
+  }
+  return ultima;
+}
+
 // Passo 2: mensagens de MÍDIA — não têm data-pre-plain-text, só dá pra achar
 // via a própria row com ícone de cauda. Só entra aqui quando a row não tem
 // NENHUM [data-pre-plain-text] dentro (senão já foi coberta pelo passo 1,
-// mensagem de texto de verdade). Usa a última data conhecida como
-// aproximação. Chave de dedup usa o data-id da mensagem (confirmado no DOM
-// real: cada row tem um container filho com data-testid="conv-msg-<ID>" e
-// data-id="<ID>" — id único e estável por mensagem, bem mais confiável que
-// remetente+minuto). Sem data-id disponível, cai no fallback antigo
-// (remetente+data), que ainda pode colapsar duas mídias do mesmo tipo no
-// mesmo minuto — mais seguro que duplicar.
-function coletarMensagensDeMidia(mapa, estado) {
-  document.querySelectorAll('#main [role="row"]').forEach((linha) => {
+// mensagem de texto de verdade). Chave de dedup usa o data-id da mensagem
+// (confirmado no DOM real: cada row tem um container filho com
+// data-testid="conv-msg-<ID>" e data-id="<ID>" — id único e estável por
+// mensagem, bem mais confiável que remetente+minuto). Sem data-id
+// disponível, cai no fallback antigo (remetente+data), que ainda pode
+// colapsar duas mídias do mesmo tipo no mesmo minuto — mais seguro que
+// duplicar.
+function coletarMensagensDeMidia(mapa) {
+  const linhas = document.querySelectorAll('#main [role="row"]');
+  const prePlainTextElementos = document.querySelectorAll('[data-pre-plain-text]');
+
+  linhas.forEach((linha) => {
     const enviada = !!linha.querySelector('[data-icon="tail-out"]');
     const recebida = !!linha.querySelector('[data-icon="tail-in"]');
     if (!enviada && !recebida) return;
     if (linha.querySelector('[data-pre-plain-text]')) return;
 
     const remetente = enviada ? "Agência" : "Lead";
-    const dataHoraIso = estado.ultimaDataConhecida ? estado.ultimaDataConhecida.toISOString() : null;
+    const dataHoraProxima = encontrarDataMaisProximaAntes(linha, prePlainTextElementos);
+    const dataHoraIso = dataHoraProxima ? dataHoraProxima.toISOString() : null;
     const tipo = detectarTipoMidia(linha);
 
     const idEl = linha.querySelector('[data-id]');
@@ -644,10 +672,10 @@ function coletarMensagensDeMidia(mapa, estado) {
   });
 }
 
-function coletarMensagensVisiveis(mapa, estado, mapaRemetentePorNome, contatoNome) {
+function coletarMensagensVisiveis(mapa, mapaRemetentePorNome, contatoNome) {
   atualizarMapaRemetentePorNome(mapaRemetentePorNome);
-  coletarMensagensDeTexto(mapa, estado, mapaRemetentePorNome, contatoNome);
-  coletarMensagensDeMidia(mapa, estado);
+  coletarMensagensDeTexto(mapa, mapaRemetentePorNome, contatoNome);
+  coletarMensagensDeMidia(mapa);
 }
 
 // Espera baseada em MutationObserver, não em setTimeout fixo: um atraso fixo
@@ -693,7 +721,7 @@ function esperarDomEstabilizar(container, { tempoSilencioMs = 200, timeoutMaxMs 
 // ficar "entre" dois pontos de coleta consecutivos. Por isso o passo aqui é
 // em PIXELS fixos e pequeno, não em fração da tela — garante granularidade
 // suficiente independente de quão compacto o conteúdo esteja.
-async function varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, direcao, onProgresso) {
+async function varrerColetando(container, mapa, mapaRemetentePorNome, contatoNome, direcao, onProgresso) {
   const DISTANCIA_PX = 60;
   const MAX_PASSOS = 3000;
 
@@ -710,7 +738,7 @@ async function varrerColetando(container, mapa, estado, mapaRemetentePorNome, co
     }
 
     await esperarDomEstabilizar(container);
-    coletarMensagensVisiveis(mapa, estado, mapaRemetentePorNome, contatoNome);
+    coletarMensagensVisiveis(mapa, mapaRemetentePorNome, contatoNome);
     if (tentativa % 10 === 0) {
       console.log(
         `[Prospects] extrairHistoricoConversa: varredura ${direcao}, passo ${tentativa + 1}/${MAX_PASSOS}, scrollTop =`,
@@ -741,9 +769,8 @@ async function extrairHistoricoConversa(contatoNome, onProgresso) {
   }
 
   const mapa = new Map();
-  const estado = { ultimaDataConhecida: null };
   const mapaRemetentePorNome = new Map();
-  coletarMensagensVisiveis(mapa, estado, mapaRemetentePorNome, contatoNome);
+  coletarMensagensVisiveis(mapa, mapaRemetentePorNome, contatoNome);
   console.log(
     "[Prospects] extrairHistoricoConversa: coleta inicial (no topo) =",
     mapa.size,
@@ -752,12 +779,12 @@ async function extrairHistoricoConversa(contatoNome, onProgresso) {
   );
 
   if (container) {
-    await varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, "baixo", onProgresso);
+    await varrerColetando(container, mapa, mapaRemetentePorNome, contatoNome, "baixo", onProgresso);
     // Segunda passada, de volta pro topo: a primeira (com o container
     // partindo do topo) cobre a conversa inteira, mas uma passada na direção
     // oposta serve de rede de segurança pra qualquer trecho que a janela
     // virtualizada tenha deixado passar rápido demais na primeira.
-    await varrerColetando(container, mapa, estado, mapaRemetentePorNome, contatoNome, "cima", onProgresso);
+    await varrerColetando(container, mapa, mapaRemetentePorNome, contatoNome, "cima", onProgresso);
   }
 
   const mensagens = Array.from(mapa.values()).sort((a, b) => {
